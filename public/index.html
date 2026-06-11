@@ -1,0 +1,963 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>KeyMgr · 后台</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">KeyMgr</div>
+    <nav>
+      <a href="#" data-tab="keys" class="active">Keys</a>
+      <a href="#" data-tab="accounts">账号管理</a>
+      <a href="#" data-tab="variables">变量库</a>
+      <a href="#" data-tab="logs">验证日志</a>
+      <a href="#" data-tab="docs">API 文档</a>
+    </nav>
+    <div class="user">
+      <button id="theme-toggle" class="ghost" title="切换暗色主题" aria-label="切换主题">
+        <span class="theme-icon">🌙</span>
+      </button>
+      <span id="me"></span>
+      <button id="btn-change-pw" class="ghost" title="修改我的密码">🔑 改密</button>
+      <button id="logout">退出</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Keys -->
+    <section id="tab-keys" class="tab active">
+      <div class="actions">
+        <button id="btn-new-key">+ 新建 Key</button>
+        <input type="text" id="key-search" placeholder="搜索 name / 前缀 / owner..." style="max-width:240px">
+        <select id="key-account-filter" style="max-width:200px" title="按账号过滤（admin 才能选其他账号）">
+          <option value="">全部账号（仅 admin）</option>
+        </select>
+        <label class="check"><input type="checkbox" id="key-show-deleted"> 显示已删除（30 天内可恢复）</label>
+        <span class="muted" style="margin-left:auto;">💡 主 Key 在「账号管理」页</span>
+        <span class="muted">明文持久存于数据库（仅本机访问）。<b>复制</b> = 当前 key；<b>原 key</b> = 创建时的 key（重置后仍可拿回）；<b>重置</b> = 生成新 key。</span>
+      </div>
+      <table class="grid">
+        <thead>
+          <tr>
+            <th style="width:48px;">#</th><th>名称</th><th>前缀</th><th>账号</th><th>owner</th><th>tags</th><th>启用</th>
+            <th>过期</th><th>最近使用</th><th>创建</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="keys-tbody"></tbody>
+      </table>
+    </section>
+
+    <!-- Accounts -->
+    <section id="tab-accounts" class="tab">
+      <div class="actions">
+        <h2 style="margin:0">账号管理</h2>
+        <span class="muted">每个账号固定 1 个「主 Key」，可在右侧查看明文 / 刷新。admin 账号的主 Key 是「超级钥匙」，verify 时跨账号通杀。</span>
+        <div style="flex:1"></div>
+        <button class="primary" id="btn-new-account">+ 新建子账号</button>
+      </div>
+      <table class="grid">
+        <thead>
+          <tr>
+            <th style="width:48px;">#</th>
+            <th>账号</th>
+            <th>角色</th>
+            <th>状态</th>
+            <th>主 Key</th>
+            <th>主 Key 创建</th>
+            <th>主 Key 最近使用</th>
+            <th>账号创建</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="accounts-tbody"></tbody>
+      </table>
+    </section>
+
+    <!-- Variables -->
+    <section id="tab-variables" class="tab">
+      <div class="actions">
+        <h2 style="margin:0">变量库</h2>
+        <span class="muted">同一分组可批量调用（POST /v1/variables/group）</span>
+        <div style="flex:1"></div>
+        <select id="var-group-filter" style="max-width:200px" title="按分组过滤">
+          <option value="">全部分组</option>
+          <option value="__null__">（未分组）</option>
+        </select>
+        <input type="text" id="var-search" placeholder="搜索 name..." style="max-width:240px">
+        <button class="primary" id="btn-new-var">+ 新建变量</button>
+      </div>
+      <table class="grid">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>name</th>
+            <th>value</th>
+            <th>分组</th>
+            <th>描述</th>
+            <th>更新时间</th>
+            <th>创建时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="vars-tbody"></tbody>
+      </table>
+    </section>
+
+    <!-- Logs -->
+    <section id="tab-logs" class="tab">
+      <div class="actions">
+        <label>结果过滤
+          <select id="log-filter">
+            <option value="">全部</option>
+            <option value="ok">ok</option>
+            <option value="fail">fail</option>
+          </select>
+        </label>
+        <span class="muted">只保留最近 30 天（可调 LOG_RETENTION_DAYS）。</span>
+      </div>
+      <table class="grid">
+        <thead>
+          <tr>
+            <th>时间</th><th>结果</th><th>原因</th><th>前缀</th>
+            <th>IP</th><th>UA</th><th>耗时(ms)</th>
+          </tr>
+        </thead>
+        <tbody id="logs-tbody"></tbody>
+      </table>
+    </section>
+
+    <!-- Docs -->
+    <section id="tab-docs" class="tab">
+      <div class="doc">
+        <header class="doc-hero">
+          <div class="doc-hero-text">
+            <span class="eyebrow">API Reference</span>
+            <h2>KeyMgr 接口文档</h2>
+            <p>两类接口：<b>对外验证</b> <code class="inline">POST /v1/verify</code>（业务服务调用）；<b>后台管理</b> <code class="inline">/api/*</code>（需登录）。</p>
+          </div>
+          <div class="doc-hero-meta">
+            <div><span>Base</span><code>http://your-host:3000</code></div>
+            <div><span>Storage</span><code>SQLite (sql.js)</code></div>
+            <div><span>Auth</span><code>Cookie (HttpOnly)</code></div>
+            <div><span>Rate limit</span><code>600 / min / IP</code></div>
+          </div>
+        </header>
+
+        <!-- 顶部子导航 -->
+        <div class="doc-subtabs" data-tabs>
+          <div class="code-tab-bar">
+            <button data-pane="v" class="active">对外验证 API</button>
+            <button data-pane="va">对外变量 API</button>
+            <button data-pane="a">认证 & 用户</button>
+            <button data-pane="k">Key 管理</button>
+            <button data-pane="va2">变量管理</button>
+            <button data-pane="l">日志</button>
+            <button data-pane="s">状态码 & 错误</button>
+          </div>
+
+          <!-- ① 对外验证 -->
+          <div data-pane="v" class="doc-pane">
+            <article class="doc-card">
+              <h3>POST /v1/verify</h3>
+              <p class="muted">鉴权验证。其他后端服务调这个接口即可，无需自己存密钥。响应永远 200，按 <code class="inline">valid</code> 字段判断。</p>
+              <div class="code-tabs" data-tabs>
+                <div class="code-tab-bar">
+                  <button data-pane="vb" class="active">Body</button>
+                  <button data-pane="vh1">Bearer</button>
+                  <button data-pane="vh2">x-api-key</button>
+                </div>
+                <pre data-pane="vb">POST /v1/verify
+Content-Type: application/json
+
+{ "key": "sk_live_xxxxxx_xxxxxxxxxxxx" }</pre>
+                <pre data-pane="vh1" hidden>POST /v1/verify
+Authorization: Bearer sk_live_xxxxxx_xxxxxxxxxxxx</pre>
+                <pre data-pane="vh2" hidden>POST /v1/verify
+x-api-key: sk_live_xxxxxx_xxxxxxxxxxxx</pre>
+              </div>
+            </article>
+            <article class="doc-card">
+              <h3>成功响应</h3>
+              <pre>200 OK
+{
+  "valid": true,
+  "keyId": 1,
+  "name": "prod-server",
+  "meta": { "owner": "team-a" }
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>失败响应</h3>
+              <pre>200 OK
+{
+  "valid": false,
+  "code":  "NOT_FOUND | DISABLED | EXPIRED | MISSING_KEY",
+  "reason": "key 不存在"
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>业务侧调用示例</h3>
+              <div class="code-tabs" data-tabs>
+                <div class="code-tab-bar">
+                  <button data-pane="vc" class="active">curl</button>
+                  <button data-pane="vn">Node.js</button>
+                  <button data-pane="vp">Python</button>
+                  <button data-pane="vg">Go</button>
+                </div>
+                <pre data-pane="vc">curl -X POST http://keymgr:3000/v1/verify \
+  -H "Content-Type: application/json" \
+  -d '{"key":"'"$MY_KEY"'"}'</pre>
+                <pre data-pane="vn" hidden>// Express 中间件
+async function requireKey(req, res, next) {
+  const r = await fetch('http://keymgr:3000/v1/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: req.headers['x-api-key'] }),
+  });
+  const { valid, code } = await r.json();
+  if (!valid) return res.status(401).json({ error: code });
+  next();
+}</pre>
+                <pre data-pane="vp" hidden># Flask
+import requests
+def require_key(key: str) -> bool:
+    r = requests.post(
+        'http://keymgr:3000/v1/verify',
+        json={'key': key},
+        timeout=2,
+    )
+    return r.json().get('valid') is True</pre>
+                <pre data-pane="vg" hidden>// net/http 中间件
+func Verify(next http.Handler) http.Handler {
+  return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    key := r.Header.Get("X-API-Key")
+    body, _ := json.Marshal(map[string]string{"key": key})
+    resp, _ := http.Post("http://keymgr:3000/v1/verify",
+      "application/json", bytes.NewReader(body))
+    defer resp.Body.Close()
+    var out struct{ Valid bool `json:"valid"` }
+    json.NewDecoder(resp.Body).Decode(&amp;out)
+    if !out.Valid { http.Error(w, "unauthorized", 401); return }
+    next.ServeHTTP(w, r)
+  })
+}</pre>
+              </div>
+            </article>
+          </div>
+
+          <!-- ①.5 对外变量 API -->
+          <div data-pane="va" class="doc-pane" hidden>
+            <article class="doc-card">
+              <h3>POST /v1/variables/get</h3>
+              <p class="muted">业务服务通过有效 Key 鉴权后，按 name 取出对应的值。常用于：动态配置 / 业务凭据分发 / 灰度开关等。</p>
+              <div class="code-tabs" data-tabs>
+                <div class="code-tab-bar">
+                  <button data-pane="vgb" class="active">Body</button>
+                  <button data-pane="vgh">Bearer</button>
+                </div>
+                <pre data-pane="vgb">POST /v1/variables/get
+Content-Type: application/json
+
+{ "name": "DB_URL" }</pre>
+                <pre data-pane="vgh" hidden>POST /v1/variables/get
+Authorization: Bearer sk_live_xxxxx
+Content-Type: application/json
+
+{ "name": "DB_URL" }</pre>
+              </div>
+            </article>
+            <article class="doc-card">
+              <h3>成功响应</h3>
+              <pre>200 OK
+{
+  "ok": true,
+  "name": "DB_URL",
+  "value": "postgres://user:pass@host:5432/db",
+  "description": "生产数据库连接串"
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>失败响应（状态码始终 200，按 <code class="inline">ok</code> 字段判断）</h3>
+              <pre>200 OK
+{
+  "ok": false,
+  "code":  "MISSING_NAME | INVALID_NAME | NOT_FOUND | MISSING_KEY | NOT_FOUND_KEY | DISABLED | EXPIRED",
+  "reason": "变量不存在"
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>业务侧调用示例</h3>
+              <div class="code-tabs" data-tabs>
+                <div class="code-tab-bar">
+                  <button data-pane="vgc" class="active">curl</button>
+                  <button data-pane="vgn">Node.js</button>
+                  <button data-pane="vgp">Python</button>
+                  <button data-pane="vgg">Go</button>
+                </div>
+                <pre data-pane="vgc">curl -X POST http://keymgr:3000/v1/variables/get \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk_live_xxx" \
+  -d '{"name":"DB_URL"}'</pre>
+                <pre data-pane="vgn" hidden>// 启动时拉一次配置
+const r = await fetch('http://keymgr:3000/v1/variables/get', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.KEYMGR_KEY}` },
+  body: JSON.stringify({ name: 'DB_URL' }),
+}).then(r => r.json());
+if (!r.ok) throw new Error('config: ' + r.code);
+console.log(r.value);</pre>
+                <pre data-pane="vgp" hidden>import os, requests
+r = requests.post(
+    'http://keymgr:3000/v1/variables/get',
+    json={'name': 'DB_URL'},
+    headers={'Authorization': f"Bearer {os.environ['KEYMGR_KEY']}"},
+    timeout=2,
+).json()
+if not r['ok']:
+    raise RuntimeError(f"config: {r['code']}")
+print(r['value'])</pre>
+                <pre data-pane="vgg" hidden>// 启动期拉配置
+body, _ := json.Marshal(map[string]string{"name":"DB_URL"})
+req, _ := http.NewRequest("POST", "http://keymgr:3000/v1/variables/get", bytes.NewReader(body))
+req.Header.Set("Authorization", "Bearer "+keymgrKey)
+req.Header.Set("Content-Type", "application/json")
+resp, _ := http.DefaultClient.Do(req)
+var out struct{
+  Ok bool `json:"ok"`
+  Value string `json:"value"`
+  Code string `json:"code"`
+}
+json.NewDecoder(resp.Body).Decode(&amp;out)
+if !out.Ok { log.Fatal("config: ", out.Code) }
+dbURL := out.Value</pre>
+              </div>
+            </article>
+            <article class="doc-card">
+              <h3>POST /v1/variables/list</h3>
+              <p class="muted">列出所有变量名（<b>不含 value</b>，避免泄露）。</p>
+              <pre>POST /v1/variables/list
+Authorization: Bearer sk_live_xxx
+
+→ 200
+{
+  "ok": true,
+  "items": [
+    { "name": "DB_URL",   "description": "生产数据库" },
+    { "name": "FEATURE_X","description": "灰度开关" }
+  ]
+}</pre>
+            </article>
+            <article class="doc-card span-2">
+              <h3>行为说明</h3>
+              <ul class="doc-list">
+                <li><b>鉴权</b>：必须先通过 Key 验证（status 有效、未停用、未过期），否则返回对应 <code class="inline">code</code>。</li>
+                <li><b>name 格式</b>：2~64 字符，<code class="inline">[A-Za-z0-9_.-]</code>，建议大写 + 下划线（如 <code class="inline">DB_URL</code>、<code class="inline">API_BASE</code>）。</li>
+                <li><b>value 限制</b>：字符串，≤ 8192 字符（足够存连接串、JSON 序列化配置等）。</li>
+                <li><b>限流</b>：1200 次/分钟/IP，<code class="inline">/v1/verify</code> 限流独立（600/min）。</li>
+                <li><b>不记录 value</b>：日志只记 name，不记 value，避免日志泄露。</li>
+              </ul>
+            </article>
+          </div>
+
+          <!-- ② 认证 -->
+          <div data-pane="a" class="doc-pane" hidden>
+            <article class="doc-card">
+              <h3>POST /api/auth/login</h3>
+              <pre>POST /api/auth/login
+{ "username": "admin", "password": "xxxxx" }
+
+→ 200 { "ok": true, "username": "admin" }   // Set-Cookie: km_sid=...
+→ 401 { "error": "invalid credentials" }</pre>
+            </article>
+            <article class="doc-card">
+              <h3>POST /api/auth/logout</h3>
+              <pre>POST /api/auth/logout
+Cookie: km_sid=...
+
+→ 200 { "ok": true }</pre>
+            </article>
+            <article class="doc-card">
+              <h3>GET /api/auth/me</h3>
+              <pre>GET /api/auth/me
+Cookie: km_sid=...
+
+→ 200 { "ok": true, "username": "admin" }
+→ 401 { "error": "unauthorized" }</pre>
+            </article>
+          </div>
+
+          <!-- ③ Key 管理 -->
+          <div data-pane="k" class="doc-pane" hidden>
+            <article class="doc-card">
+              <h3>GET /api/keys</h3>
+              <p class="muted">列出所有 Key（不含明文）。</p>
+              <pre>GET /api/keys
+Cookie: km_sid=...
+
+→ 200
+{
+  "ok": true,
+  "items": [
+    { "id":1, "name":"prod-server", "prefix":"sk_live_2092",
+      "meta":null, "enabled":true,
+      "expires_at":null, "created_at":"...", "last_used_at":"..." }
+  ]
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>GET /api/keys/:id</h3>
+              <pre>→ 200 单个 key 详情（不含明文）
+→ 404 { "ok":false, "error":"key 不存在", "code":"NOT_FOUND" }</pre>
+            </article>
+            <article class="doc-card">
+              <h3>GET /api/keys/:id/plain</h3>
+              <p class="muted">拿明文，供"复制"按钮使用。<code class="inline">isOriginal</code> 表示当前 key 是否就是创建时那个。</p>
+              <pre>GET /api/keys/1/plain
+Cookie: km_sid=...
+
+→ 200
+{
+  "ok": true,
+  "id": 1,
+  "name": "prod-server",
+  "currentPlain":  "sk_live_abc123_xxxxxxxxxxxxx",
+  "originalPlain": "sk_live_xyz789_yyyyyyyyyyyyy",
+  "isOriginal": false
+}
+→ 404 NOT_FOUND</pre>
+            </article>
+            <article class="doc-card">
+              <h3>POST /api/keys — 自动生成</h3>
+              <pre>POST /api/keys
+{ "name":"prod-server", "prefix":"sk_live", "meta":{"owner":"team-a"}, "expiresAt":null }
+
+→ 200
+{
+  "ok": true, "id": 1, "name": "prod-server",
+  "prefix": "sk_live_209202", "meta": {...}, "expiresAt": null,
+  "key": "sk_live_209202_xxxxxxxxxxxxx",        // 明文，仅此刻返回
+  "warning": "请妥善保存明文 key，此处之后将无法再次查看。",
+  "message": "已创建 key"
+}
+
+→ 400 { "ok":false, "code":"MISSING_NAME",  "field":"name" }
+→ 400 { "ok":false, "code":"INVALID_PREFIX","field":"prefix" }
+→ 400 { "ok":false, "code":"INVALID_META",  "field":"meta" }
+→ 400 { "ok":false, "code":"INVALID_EXPIRES_AT", "field":"expiresAt" }
+→ 409 { "ok":false, "code":"NAME_TAKEN",    "field":"name" }</pre>
+            </article>
+            <article class="doc-card">
+              <h3>POST /api/keys — 导入已有 Key</h3>
+              <p class="muted">把外部已经签发的 key 纳入管理。<code class="inline">prefix</code> 可省略，自动取前 12 位。</p>
+              <pre>POST /api/keys
+{
+  "mode":  "import",
+  "name":  "openai-imported",
+  "plain": "sk-proj-AbCdEfGhIjKlMn12345",
+  "prefix":"sk-proj",          // 可选
+  "meta":  {"source":"openai"} // 可选
+}
+
+→ 200 { "ok":true, "id":1, "prefix":"sk-proj", "imported":true, "message":"已导入 key" }
+→ 409 { "ok":false, "code":"KEY_DUPLICATE", "id":3 }   // 哈希已存在
+→ 400 { "ok":false, "code":"MISSING_PLAIN",  "field":"plain" }
+→ 422 { "ok":false, "code":"PLAIN_TOO_SHORT", "field":"plain" }</pre>
+            </article>
+            <article class="doc-card">
+              <h3>POST /api/keys/:id/reroll</h3>
+              <p class="muted">重置：生成新明文，旧 key 立即失效，<code class="inline">original_plain</code> 保留。</p>
+              <pre>→ 200 { "ok":true, "id":1, "prefix":"sk_live_abc123",
+        "key":"sk_live_abc123_新明文", "warning":"旧 key 已失效...",
+        "message":"已重新生成 key" }
+→ 404 NOT_FOUND</pre>
+            </article>
+            <article class="doc-card">
+              <h3>POST /api/keys/:id/toggle</h3>
+              <pre>→ 200 { "ok":true, "id":1, "enabled":false }
+→ 404 NOT_FOUND</pre>
+            </article>
+            <article class="doc-card">
+              <h3>PATCH /api/keys/:id</h3>
+              <p class="muted">局部更新（重命名 / 改 meta / 改过期）。任何字段可省略。</p>
+              <pre>PATCH /api/keys/1
+{ "name":"new-name", "meta":{...}, "expiresAt":"2027-01-01T00:00:00Z" }
+
+→ 200 { "ok":true, "message":"已更新" }
+→ 400 MISSING_NAME / INVALID_META / INVALID_EXPIRES_AT
+→ 409 NAME_TAKEN
+→ 404 NOT_FOUND</pre>
+            </article>
+            <article class="doc-card">
+              <h3>DELETE /api/keys/:id</h3>
+              <pre>→ 200 { "ok":true, "message":"已删除" }
+→ 404 NOT_FOUND</pre>
+            </article>
+            <article class="doc-card span-2">
+              <h3>字段说明</h3>
+              <ul class="doc-list">
+                <li><b>name</b> 1~64 字符，全局唯一。</li>
+                <li><b>prefix</b> 2~24 字符，字符集 <code class="inline">[A-Za-z0-9_.\-]</code>。留空使用 <code class="inline">sk_live</code>。</li>
+                <li><b>meta</b> 任意 JSON 对象，存回显时会原样返回给 <code class="inline">/v1/verify</code> 调用方。</li>
+                <li><b>expiresAt</b> ISO 8601 字符串。过期后验证返回 <code class="inline">EXPIRED</code>。</li>
+                <li><b>明文存储</b>：数据库存 <code class="inline">original_plain</code>（创建/导入时）+ <code class="inline">current_plain</code>（当前有效），重置时 current 跟着变，original 永久保留。删除时整行清掉。</li>
+              </ul>
+            </article>
+          </div>
+
+          <!-- ③.5 变量管理 -->
+          <div data-pane="va2" class="doc-pane" hidden>
+            <article class="doc-card">
+              <h3>GET /api/variables</h3>
+              <pre>GET /api/variables
+Cookie: km_sid=...
+
+→ 200
+{
+  "ok": true,
+  "items": [
+    { "id":1, "name":"DB_URL",   "value":"postgres://...", "description":"生产 DB", "created_at":"...", "updated_at":"..." },
+    { "id":2, "name":"FEATURE_X","value":"on",            "description":"灰度开关","created_at":"...","updated_at":"..." }
+  ]
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>POST /api/variables</h3>
+              <pre>POST /api/variables
+{ "name":"DB_URL", "value":"postgres://...", "description":"生产 DB" }
+
+→ 200 { "ok":true, "id":1, "name":"DB_URL", "value":"...", "description":"...",
+        "created_at":"...", "updated_at":"...", "message":"已创建变量" }
+→ 400 { "ok":false, "code":"INVALID_NAME",  "field":"name" }
+→ 400 { "ok":false, "code":"INVALID_VALUE", "field":"value" }
+→ 409 { "ok":false, "code":"NAME_TAKEN",    "field":"name" }</pre>
+            </article>
+            <article class="doc-card">
+              <h3>PATCH /api/variables/:id</h3>
+              <p class="muted">局部更新（改名 / 改值 / 改描述），所有字段可选。</p>
+              <pre>PATCH /api/variables/1
+{ "value":"postgres://新连接串", "description":"新说明" }
+
+→ 200 { "ok":true, "id":1, "name":"DB_URL", "value":"...", "description":"...",
+        "created_at":"...", "updated_at":"...", "message":"已更新变量" }
+→ 400 INVALID_NAME / INVALID_VALUE
+→ 404 NOT_FOUND
+→ 409 NAME_TAKEN</pre>
+            </article>
+            <article class="doc-card">
+              <h3>DELETE /api/variables/:id</h3>
+              <pre>→ 200 { "ok":true, "message":"已删除" }
+→ 404 NOT_FOUND</pre>
+            </article>
+            <article class="doc-card span-2">
+              <h3>字段说明</h3>
+              <ul class="doc-list">
+                <li><b>name</b> 2~64 字符，<code class="inline">[A-Za-z0-9_.-]</code>，全局唯一。业务侧调 <code class="inline">/v1/variables/get</code> 时传这个。</li>
+                <li><b>value</b> 字符串，≤ 8192 字符。建议存连接串、API key、JSON 序列化配置等。</li>
+                <li><b>description</b> 可选，≤ 500 字符。仅供后台展示，<b>不会</b>返回给业务侧。</li>
+                <li><b>更新时间</b> 改名 / 改值 / 改描述都会刷新；删除后整行没了。</li>
+                <li><b>对应业务侧接口</b>：见上方「对外变量 API」标签页。</li>
+              </ul>
+            </article>
+          </div>
+
+          <!-- ④ 日志 -->
+          <div data-pane="l" class="doc-pane" hidden>
+            <article class="doc-card">
+              <h3>GET /api/logs</h3>
+              <p class="muted">查询 verify 验证日志。供后台"日志"页用。</p>
+              <pre>GET /api/logs?result=ok&amp;limit=50&amp;offset=0
+Cookie: km_sid=...
+
+→ 200
+{
+  "ok": true,
+  "items": [
+    { "id":1, "key_id":1, "key_prefix":"sk_live_2092",
+      "key_masked":"sk_live…4osUU", "ip":"1.2.3.4",
+      "user_agent":"curl/8.0", "result":"ok", "reason":null,
+      "duration_ms":1.2, "created_at":"2026-06-11 10:00:00" }
+  ]
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>GET /api/logs/stats</h3>
+              <pre>→ 200
+{
+  "ok": true,
+  "total": 1234,
+  "okCount":   1200,
+  "failCount": 34,
+  "byReason": { "NOT_FOUND":20, "DISABLED":10, "EXPIRED":4 }
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>日志文件</h3>
+              <pre># logs/app-YYYY-MM-DD.log  按天切割
+[2026-06-11 10:00:00] [INFO] verify ok ip=1.2.3.4 {"keyId":1}
+[2026-06-11 10:00:01] [WARN] verify fail NOT_FOUND ip=2.3.4.5
+
+建议接入 logrotate 自动归档（见 README）。</pre>
+            </article>
+          </div>
+
+          <!-- ⑤ 状态码 -->
+          <div data-pane="s" class="doc-pane" hidden>
+            <article class="doc-card">
+              <h3>状态码语义</h3>
+              <table class="grid code-table">
+                <thead><tr><th>状态</th><th>含义</th><th>触发场景</th></tr></thead>
+                <tbody>
+                  <tr><td><code>200</code></td><td>OK</td><td>成功创建/查询/更新/删除/验证</td></tr>
+                  <tr><td><code>400</code></td><td>Bad Request</td><td>参数缺失、JSON 解析失败、格式错</td></tr>
+                  <tr><td><code>401</code></td><td>Unauthorized</td><td>未登录或会话失效</td></tr>
+                  <tr><td><code>403</code></td><td>Forbidden</td><td>CSRF token 错</td></tr>
+                  <tr><td><code>404</code></td><td>Not Found</td><td>资源不存在</td></tr>
+                  <tr><td><code>409</code></td><td>Conflict</td><td>name 重复 / 导入的 key 哈希已存在</td></tr>
+                  <tr><td><code>422</code></td><td>Unprocessable</td><td>格式合法但语义错（key 太短、过期时间已过去）</td></tr>
+                  <tr><td><code>429</code></td><td>Too Many Requests</td><td>限流（默认 600/min/IP，仅 /v1/verify）</td></tr>
+                </tbody>
+              </table>
+            </article>
+            <article class="doc-card">
+              <h3>错误响应统一格式</h3>
+              <pre>{
+  "ok": false,
+  "error": "name 已存在",
+  "code":  "NAME_TAKEN",
+  "field": "name"     // 字段级错误时存在，前端用于回填
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>成功响应统一格式</h3>
+              <pre>{
+  "ok": true,
+  "...": "业务字段"
+}</pre>
+            </article>
+            <article class="doc-card">
+              <h3>code 列表（管理 API）</h3>
+              <pre>MISSING_NAME       name 缺失或格式错
+INVALID_PREFIX     prefix 格式错
+INVALID_META       meta 不是 JSON 对象
+INVALID_EXPIRES_AT expiresAt 格式错或已过期
+MISSING_PLAIN      导入模式缺 plain
+PLAIN_TOO_SHORT    导入的 key 太短（&lt; 8）
+IMPORT_FAILED      导入失败
+NAME_TAKEN         name 已存在
+KEY_DUPLICATE      导入的 key 哈希已存在
+NOT_FOUND          资源不存在
+
+（/v1/verify 用另一组：NOT_FOUND/DISABLED/EXPIRED/MISSING_KEY）</pre>
+            </article>
+            <article class="doc-card">
+              <h3>认证机制</h3>
+              <ul class="doc-list">
+                <li>登录成功后下发 <code class="inline">km_sid</code> Cookie（HttpOnly, SameSite=Lax）。</li>
+                <li>所有 <code class="inline">/api/*</code> 需要带该 Cookie，否则 401。</li>
+                <li>写操作额外需要 <code class="inline">X-CSRF-Token</code> 头（值 = <code class="inline">GET /api/auth/me</code> 返回的 csrfToken）。</li>
+                <li><code class="inline">/v1/verify</code> 不需要认证，仅限流。</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 新建 Key 弹窗 -->
+  <div class="modal" id="new-key-modal" hidden>
+    <div class="modal-card">
+      <button type="button" class="modal-close" id="new-key-close" aria-label="关闭">×</button>
+      <h3>新建 Key</h3>
+      <p class="muted" style="margin:0 0 12px;">选择创建方式，再填信息。</p>
+
+      <div class="seg" role="tablist">
+        <button type="button" class="seg-btn active" data-mode="generate">自动生成</button>
+        <button type="button" class="seg-btn" data-mode="import">导入已有 Key</button>
+      </div>
+
+      <form id="new-key-form" data-mode="generate">
+        <label>名称 <input name="name" required placeholder="如 prod-server" /></label>
+
+        <!-- 自动生成：自定义前缀 -->
+        <div data-show="generate">
+          <label>前缀
+            <input name="prefix" placeholder="留空使用默认 sk_live" list="prefix-presets" />
+          </label>
+          <datalist id="prefix-presets">
+            <option value="sk_live"></option>
+            <option value="sk_test"></option>
+            <option value="ak_"></option>
+            <option value="tk_"></option>
+            <option value="pk_"></option>
+          </datalist>
+          <p class="muted" style="font-size:12px;margin:4px 0 0;">允许字母/数字/下划线/中划线/点，2~24 字符。留空使用 <code class="inline">sk_live</code>。</p>
+        </div>
+
+        <!-- 导入：填完整 key + 高级展开 -->
+        <div data-show="import" hidden>
+          <label>完整 Key
+            <textarea name="plain" rows="2" placeholder="粘贴要管理的完整 key，例如 sk_live_xxxxxx_xxxxxxxx"></textarea>
+          </label>
+          <details class="advanced" open>
+            <summary>高级：自定义前缀（可选）</summary>
+            <label>自定义前缀
+              <input name="prefix" placeholder="留空则自动取 key 前 12 位" />
+            </label>
+            <p class="muted" style="font-size:12px;margin:6px 0 0;">任何前缀都可以，例如 <code class="inline">ak_</code>、<code class="inline">tk_</code>、<code class="inline">xoxb-</code>、<code class="inline">sk-proj-</code>。不影响验证。</p>
+          </details>
+          <p class="muted" style="font-size:12.5px;margin:4px 0 0;">
+            导入后系统只保存 SHA-256 哈希，明文不会落库。需要再次复制可点列表里的"重置"。
+          </p>
+        </div>
+
+        <label>Meta (JSON, 可选) <textarea name="meta" rows="2" placeholder='{"owner":"team-a"}'></textarea></label>
+        <label>Owner（负责人 / 团队，可选）
+          <input name="owner" maxlength="64" placeholder="例如 team-a / alice" />
+        </label>
+        <label>Tags（标签，可选，逗号分隔）
+          <input name="tags" placeholder="例如 prod, billing, web" />
+        </label>
+        <label>归属账号
+          <select name="ownerUserId" id="new-key-owner-select">
+            <!-- 由 JS 填充：默认是当前用户；admin 才能选其他账号 -->
+          </select>
+        </label>
+        <label>过期时间 (可选) <input name="expiresAt" type="datetime-local" /></label>
+
+        <div class="modal-actions">
+          <button type="button" id="btn-cancel" class="secondary">取消</button>
+          <button type="submit" id="btn-submit-new-key">创建</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 变量编辑弹窗 -->
+  <div class="modal" id="var-modal" hidden>
+    <div class="modal-card">
+      <button type="button" class="modal-close" id="var-modal-close" aria-label="关闭">×</button>
+      <h3 id="var-modal-title">新建变量</h3>
+      <p class="muted" style="margin:0 0 12px;" id="var-modal-sub">name 全局唯一，2~64 字符。</p>
+
+      <form id="var-form">
+        <label>name（变量名）
+          <input name="name" required placeholder="例如 DB_URL / API_BASE / FEATURE_FLAG" />
+        </label>
+        <p class="muted" style="font-size:12px;margin:4px 0 0;">业务侧用 <code class="inline">POST /v1/variables/get</code> 时传这个 name 取值。</p>
+
+        <label>value（值）
+          <textarea name="value" rows="3" required placeholder="例如 postgres://user:pass@host:5432/db"></textarea>
+        </label>
+
+        <label>分组（可选）
+          <div class="group-picker" id="var-group-picker">
+            <button type="button" class="group-picker-trigger" id="var-group-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span class="group-picker-label" id="var-group-trigger-label">不分组</span>
+              <span class="group-picker-caret" aria-hidden="true">▾</span>
+            </button>
+            <!-- 实际提交给后端的值（隐藏字段） -->
+            <input type="hidden" name="group" id="var-group-hidden" value="" />
+            <div class="group-picker-panel" id="var-group-panel" role="listbox" hidden>
+              <div class="group-picker-search">
+                <input type="text" id="var-group-search" placeholder="搜索已有分组或输入新分组名…" autocomplete="off" />
+                <button type="button" class="group-picker-clear" id="var-group-clear" title="清空">×</button>
+              </div>
+              <div class="group-picker-list" id="var-group-list"></div>
+              <div class="group-picker-foot muted">按 Enter 直接使用搜索框中的文字作为新分组；字符集 <code class="inline">[A-Za-z0-9_.-]</code>，2~64 字符。</div>
+            </div>
+          </div>
+        </label>
+        <p class="muted" style="font-size:12px;margin:4px 0 0;">不分组 = 单条调用；同分组 = <code class="inline">POST /v1/variables/group</code> 一次取走所有 name/value。</p>
+
+        <label>description（可选）
+          <input name="description" maxlength="500" placeholder="用途说明，方便协作" />
+        </label>
+
+        <div class="modal-actions">
+          <button type="button" id="btn-cancel-var" class="secondary">取消</button>
+          <button type="submit" id="btn-submit-var">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 查看分组（批量展示一个分组下所有 name/value） -->
+  <div class="modal" id="group-modal" hidden>
+    <div class="modal-card" style="max-width:640px;">
+      <button type="button" class="modal-close" id="group-modal-close" aria-label="关闭">×</button>
+      <h3>查看分组 · <span id="group-modal-title" style="font-family:monospace;"></span></h3>
+      <p class="muted" style="margin:0 0 12px;">
+        该分组下的全部 name/value 集合。业务侧可用 <code class="inline">POST /v1/variables/group</code> 一次性取走。
+      </p>
+      <div id="group-modal-body" style="max-height:60vh; overflow:auto;"></div>
+      <div class="modal-actions">
+        <button type="button" id="group-modal-copy-json" class="ghost">复制为 JSON</button>
+        <button type="button" id="group-modal-cancel" class="secondary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 重置子账号密码 -->
+  <div class="modal" id="reset-pw-modal" hidden>
+    <div class="modal-card modal-card-wide">
+      <button type="button" class="modal-close" id="reset-pw-close" aria-label="关闭">×</button>
+      <h3>重置账号密码 · <span id="reset-pw-username" style="font-family:monospace;"></span></h3>
+      <p class="muted" style="margin:0 0 12px;">
+        系统会生成 1 个 16 字符高强度新密码，<b>覆盖</b>该账号的当前密码，并<b>撤销其所有 session</b>（强制重新登录）。<br>
+        主 Key 不受影响。
+      </p>
+      <div class="result-box" id="reset-pw-result-row" hidden>
+        <div class="result-label">新密码（仅此刻显示）</div>
+        <code id="reset-pw-plain" class="result-code" data-copy-target></code>
+        <div class="result-tip">点击代码块即可复制 · 安全交付给子账号后请关闭此窗口</div>
+      </div>
+      <p class="muted" id="reset-pw-info" style="font-size:12px;margin:6px 0 0;"></p>
+      <div class="modal-actions">
+        <button type="button" id="reset-pw-copy" class="primary">复制新密码</button>
+        <button type="button" id="reset-pw-cancel" class="secondary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 应用内确认弹窗（替代浏览器原生 confirm()，避免黑屏体验） -->
+  <div class="modal" id="confirm-modal" hidden>
+    <div class="modal-card modal-card-narrow confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+      <button type="button" class="modal-close" data-confirm-close aria-label="关闭">×</button>
+      <span class="modal-card-icon" aria-hidden="true">!</span>
+      <h3 id="confirm-title">确认操作</h3>
+      <p id="confirm-message" class="confirm-message"></p>
+      <div class="modal-actions">
+        <button type="button" id="confirm-cancel" class="secondary">取消</button>
+        <button type="button" id="confirm-ok" class="danger">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 修改我的密码 -->
+  <div class="modal" id="change-pw-modal" hidden>
+    <div class="modal-card modal-card-narrow">
+      <button type="button" class="modal-close" id="change-pw-close" aria-label="关闭">×</button>
+      <h3>修改我的密码</h3>
+      <p class="muted" style="margin:0 0 12px;">
+        需要先输旧密码验证。改完后会撤销该账号的其它 session（当前会话保留）。
+      </p>
+      <form id="change-pw-form">
+        <label>旧密码
+          <input name="currentPassword" type="password" required autocomplete="current-password" />
+        </label>
+        <label>新密码
+          <input name="newPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" />
+        </label>
+        <p class="muted" style="font-size:12px;margin:4px 0 0;">长度 8~128 字符。建议包含大小写字母、数字、特殊字符。</p>
+        <div class="modal-actions">
+          <button type="button" id="change-pw-cancel" class="secondary">取消</button>
+          <button type="submit" id="change-pw-submit">提交</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 编辑 Key 弹窗 -->
+  <div class="modal" id="edit-key-modal" hidden>
+    <div class="modal-card">
+      <button type="button" class="modal-close" id="edit-key-close" aria-label="关闭">×</button>
+      <h3>编辑 Key</h3>
+      <p class="muted" style="margin:0 0 12px;">修改元数据（name / owner / tags / 过期 / meta），不会改明文。</p>
+      <form id="edit-key-form">
+        <label>name
+          <input name="name" required maxlength="64" />
+        </label>
+        <label>归属账号
+          <select name="ownerUserId" id="edit-key-owner-select">
+            <!-- 由 JS 填充：admin 才能改账号；operator/viewer 看到自己且不能改 -->
+          </select>
+        </label>
+        <label>owner
+          <input name="owner" maxlength="64" placeholder="团队 / 负责人" />
+        </label>
+        <label>tags（逗号分隔）
+          <input name="tags" placeholder="例如 prod, billing, web" />
+        </label>
+        <label>过期时间
+          <input name="expiresAt" type="datetime-local" />
+        </label>
+        <label>Meta (JSON)
+          <textarea name="meta" rows="3" placeholder='{"owner":"team-a"}'></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="edit-key-cancel" class="secondary">取消</button>
+          <button type="submit" id="edit-key-submit">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 创建成功后的明文 Key 横幅（弹窗关闭后仍可见） -->
+  <div class="banner" id="new-key-banner" hidden>
+    <div class="banner-inner">
+      <div>
+        <strong>Key 已创建，请立即保存明文（关闭后无法再查看）：</strong>
+        <code id="new-key-plain"></code>
+      </div>
+      <div class="banner-actions">
+        <button type="button" id="btn-copy">复制</button>
+        <button type="button" id="btn-dismiss-banner" class="secondary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 查看账号主 Key 明文 -->
+  <div class="modal" id="main-key-modal" hidden>
+    <div class="modal-card modal-card-wide">
+      <button type="button" class="modal-close" id="main-key-close" aria-label="关闭">×</button>
+      <h3 id="main-key-modal-title">账号主 Key</h3>
+      <p class="muted" style="margin:0 0 12px;" id="main-key-modal-sub"></p>
+      <div class="result-box">
+        <div class="result-label">主 Key 明文（仅此刻显示）</div>
+        <code id="main-key-plain" class="result-code" data-copy-target></code>
+        <div class="result-tip">点击代码块即可复制 · 关闭后无法再次查看</div>
+      </div>
+      <div class="result-box" id="main-key-original-row" hidden style="margin-top:10px; background:linear-gradient(180deg,#f8fafc,#f1f5f9); border-color:#cbd5e1;">
+        <div class="result-label" style="color:#475569;">原始 Key（创建/导入时的，未重置过则同上）</div>
+        <code id="main-key-original" class="result-code" style="background:#fff; border-color:#cbd5e1;" data-copy-target></code>
+      </div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0;" id="main-key-modal-hint">主 Key 是该账号的「凭证钥匙」。</p>
+      <div class="modal-actions">
+        <button type="button" id="main-key-copy" class="primary">复制主 Key</button>
+        <button type="button" id="main-key-cancel" class="secondary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建子账号 -->
+  <div class="modal" id="new-account-modal" hidden>
+    <div class="modal-card">
+      <button type="button" class="modal-close" id="new-account-close" aria-label="关闭">×</button>
+      <h3>新建子账号</h3>
+      <p class="muted" style="margin:0 0 12px;">会自动生成 1 个主 Key（仅 admin 可见 / 可刷）。</p>
+      <form id="new-account-form">
+        <label>用户名 <input name="username" required placeholder="小写字母/数字/_.-" autocomplete="off" /></label>
+        <label>显示名（可选） <input name="displayName" maxlength="64" placeholder="如：Alice / 移动端团队" /></label>
+        <label>密码 <input name="password" type="password" required minlength="8" maxlength="128" placeholder="≥ 8 字符" autocomplete="new-password" /></label>
+        <label>角色
+          <select name="role">
+            <option value="operator" selected>operator（可读写 key / 变量，不可管用户）</option>
+            <option value="viewer">viewer（只读）</option>
+            <option value="admin">admin（全权；会拿到跨账号通杀的主 Key）</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="btn-cancel-account" class="secondary">取消</button>
+          <button type="submit" id="btn-submit-account">创建</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

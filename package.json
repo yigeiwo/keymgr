@@ -1,0 +1,22 @@
+{
+  "name": "keymgr",
+  "version": "1.0.0",
+  "description": "轻量级 Key 管理与验证服务（自托管）",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "backup": "node src/backup.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "dayjs": "^1.11.13",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "sql.js": "^1.12.0"
+  }
+}

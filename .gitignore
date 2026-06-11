@@ -1,0 +1,11 @@
+node_modules/
+data/*.db
+data/*.db-journal
+logs/*.log
+.env
+.DS_Store
+# 备份文件含真实 db 数据，不上传
+backups/
+# 临时调试脚本
+test-*.js
+_test-*.js
