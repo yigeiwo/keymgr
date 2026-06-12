@@ -2,6 +2,29 @@
 
 轻量级 **API Key 管理 + 验证服务**，自托管、单文件 SQLite，适合放到一台小服务器上跑。
 
+## 更新日志
+
+### v0.10（当前）
+- **历史 Key 不可调用**：`POST /api/keys/:id/reroll` 重置时同步覆盖 `original_plain`，旧明文在数据库里彻底消失（业务侧 verify 本来就走 hash 匹配，现在 DB 层面也无残留）。`GET /api/keys/:id/plain` 不再返回 `originalPlain` / `isOriginal`。
+- **「复制原 key」功能下线**：UI 去掉「🗝 复制原 key」按钮；「账号主 Key」弹窗不再展示「原始 Key」区域。明文只活在「当前有效」这一刻。
+- **账号主 Key 自愈**：`GET /api/accounts/:id/main-key` / `POST /api/accounts/:id/main-key/reroll` 在账号无主 Key 时会自动补建，并返回 `autoCreated:true` 让前端区分弹窗标题。
+- **UI 整体优化**：
+  - 工具栏 (toolbar)：标题 + 主按钮一行，过滤行（搜索 / 标签 / 所有者 / 账号）一行；窄屏自动收缩。
+  - 标签 / 所有者选择器统一为「分组选择器」交互（搜索 + 多选 + chips）。
+  - 模态框：所有控件 36px 同高对齐、列宽 1:1、grid row 模板保证两列控件 y 坐标严格相同。
+  - 浮层（tag picker / owner picker / group picker）`position:fixed` 定位 + JS 重定位，避免被 modal-card 的 `overflow:auto` 裁切。
+  - 表格：操作列 4 按钮（复制 / 编辑 / 重置 / 启用停用 / 删除）紧凑排布；长 tag 列表不撑高行高。
+- **`purgeHistoricalOriginals` 启动迁移**：首次升级到 v0.10 时一次性把 `api_keys` 里所有 `original_plain != current_plain` 的行统一刷成 `current_plain`，确保历史 Key 数据在 DB 中彻底清空。
+
+### v0.9
+- 变量按 `group_name` 分组；`POST /v1/variables/group` 一次性取走一组。
+
+### v0.7
+- 每个账号固定 1 个「主 Key」（`is_default=1`）；admin 账号的主 Key 是「超级钥匙」（`superKey:true`，跨账号通杀）。
+
+### v0.6
+- 验证默认走 admin 账号；业务侧可显式传 `account` / `ownerUserId` 切到其他账号。
+
 ## 功能
 
 - 后台登录（账号密码，bcrypt 哈希，HttpOnly Cookie，IP 级登录限流防爆破）
@@ -12,7 +35,7 @@
 - **对外验证默认走 admin 账号**：业务侧调 `/v1/verify` 时可显式传 `account` / `ownerUserId` 切到其他账号
 - 支持 **导入已有 Key**（OpenAI、Anthropic、其他系统签发的都可纳入管理）
 - 支持 **自定义前缀**（2~24 字符，可包含字母数字和 `_-`）
-- **原 key 持久存于数据库**：创建/导入时保存 `original_plain`，重置时只换 `current_plain` 不动 original
+- **明文持久存于数据库**：创建/导入/重置时更新 `current_plain`（仅本机访问）
 - **变量库**：按 `name` 存取值（连接串、API key、灰度开关等），业务侧通过 key 鉴权后按 name 取值
 - **变量分组**（v0.9 起）：给变量打 `group_name` 标签，业务侧可用 `POST /v1/variables/group` 一次性取走一个分组下所有 name/value
 - **多用户 + 三角色**：admin（全权） / operator（读写，不可管用户） / viewer（只读）
@@ -174,10 +197,13 @@ curl -X POST http://keymgr:3000/v1/verify \
 |---|---|---|
 | POST | `/api/auth/login` | 登录，返回 cookie |
 | POST | `/api/auth/logout` | 注销 |
-| GET  | `/api/auth/me` | 当前用户 |
-| GET  | `/api/keys?q=&tag=&ownerUserId=&account=&includeMain=` | 列表 + 搜索 + 账号过滤（admin 才能跨账号；主 Key 默认不出现，admin 可加 `includeMain=1` 列出） |
+| GET  | `/api/users/me/info` | 当前用户 |
+| GET  | `/api/keys?q=&tag=&owner=&ownerUserId=&account=&includeMain=` | 列表 + 搜索 + 账号过滤（admin 才能跨账号；主 Key 默认不出现，admin 可加 `includeMain=1` 列出；`tag` 支持单值或逗号分隔多值精确匹配） |
+| GET  | `/api/keys/tags` | 标签清单 + 计数（按字母排序，与 `/api/variables/groups` 对齐） |
+| GET  | `/api/keys/owners` | owner 清单 + 计数（按字母排序，与 `/api/keys/tags` 对齐） |
+| GET  | `/api/keys/tag/:name` | 按标签取 key（与 `/api/variables/group/:name` 对齐） |
 | GET  | `/api/keys/:id` | 详情（不含明文） |
-| GET  | `/api/keys/:id/plain` | **拿明文**（current + original） |
+| GET  | `/api/keys/:id/plain` | **拿明文**（仅当前有效 key；重置后旧明文历史不可拿回） |
 | POST | `/api/keys` | 新建（自动生成 / 导入；支持 owner / tags / ownerUserId） |
 | GET  | `/api/accounts` | 账号列表（admin 全量，其他只看自己；admin 加 `?includeDeleted=1` 列出已软删） |
 | GET  | `/api/accounts/:id` | 账号详情（含主 Key 摘要） |
@@ -309,15 +335,16 @@ SQL
 
 | 字段 | 含义 | 创建时 | 重置时 | 删除时 |
 |---|---|---|---|---|
-| `original_plain` | 创建/导入时的原始 key | = 新明文 | **不变** | 行没了 |
-| `current_plain`  | 当前有效 key | = 新明文 | = 新明文 | 行没了 |
+| `current_plain`  | 当前有效 key（**唯一会明文存在的字段**） | = 新明文 | = 新明文 | 行没了 |
 | `hash`           | SHA-256(current_plain) | 算 | 重新算 | 行没了 |
 | `owner`          | 负责人/团队（≤64 字符） | 可选 | 保留 | 行没了 |
 | `tags`           | 标签数组（≤20 项 × ≤32 字符，JSON 字符串） | 可选 | 保留 | 行没了 |
 | `owner_user_id`  | 归属账号（users.id），null 视作 admin | 默认 = 创建者（admin 可指定其他） | 保留 | 行没了 |
 | `is_default`     | 是否该账号的「主 Key」（0/1，partial unique：每账号最多 1 个） | 默认 0 | 保留 | 行没了 |
 
-`original_plain` 与 `current_plain` 都用 **AES-256-GCM** 加密存储（密钥由 `SESSION_SECRET` 派生）。改 `SESSION_SECRET` 会让历史密文无法解密 —— 见下方"密钥轮换"小节。
+> **v0.10 起「历史 key」不可调用**：数据库不再保留"创建/导入时的原始 key"。重置时 `original_plain` 会被同步覆盖为新值（旧明文在 DB 中彻底消失）。业务侧 verify 本来就走 hash 匹配，行为不变；但你**不能从 DB / API 拿回旧明文了**。如果某天你需要"重置后能拿回旧的"语义，需要回滚 v0.10 之前的版本。
+
+`current_plain` 用 **AES-256-GCM** 加密存储（密钥由 `SESSION_SECRET` 派生）。改 `SESSION_SECRET` 会让历史密文无法解密 —— 见下方"密钥轮换"小节。
 
 ## 角色权限
 
@@ -380,6 +407,7 @@ curl -b cookie.txt 'http://keymgr:3000/api/keys?account=alice'
 - 跟普通 key 共用同一张表，仅多 1 个标记位
 - 创建账号（`POST /api/accounts` 或 `POST /api/users`）时自动生成 1 个主 Key（`prefix=sk_acc`）
 - 启动时若发现某个账号没有主 Key，会自动补建
+- **运行时自愈**（v0.10 起）：`GET /api/accounts/:id/main-key` / `POST /api/accounts/:id/main-key/reroll` 在账号没有主 Key 时也会按需补建，响应里带 `autoCreated:true` 让前端弹窗标题区分「补建」与「刷新」。三种补建策略：① 有未软删的 → 直接用；② 只有软删的 → 复活；③ 都没有 → 新建。
 - 老 key（`owner_user_id IS NULL`）不影响主 Key 概念
 
 **主 Key 不出现在「Keys」列表里**：`/api/keys` 默认只列 `is_default=0` 的普通 key。  
@@ -595,7 +623,7 @@ ALERT_COOLDOWN_MS=300000        # 同一告警冷却（避免刷屏）
 如果你想换 `SESSION_SECRET`（比如怀疑泄露），但又不想丢历史 key 的明文：
 
 1. 用旧 secret 启动一次：`SESSION_SECRET=old node src/server.js`
-2. 写个一次性脚本把 `api_keys` 里所有 `original_plain` / `current_plain` 解密再加密
+2. 写个一次性脚本把 `api_keys` 里所有 `current_plain` 解密再加密
 3. 停服，把 `data/keymgr.db` 拷走，改 `.env` 的 `SESSION_SECRET=new`
 4. 重启 —— 历史 key 都能正常解密
 5. 没有这个迁移脚本之前，**改 SESSION_SECRET 会导致历史 key 的明文无法读取**（hash 不受影响，业务侧仍可验证）

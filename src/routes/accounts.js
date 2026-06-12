@@ -64,6 +64,8 @@ function err(res, status, code, message, extra = {}) {
 
 /** 把账号的「主 Key」摘要查出来（含 prefix、创建时间、最近使用） */
 function fetchMainKeySummary(userId) {
+  // 没主 Key 就立刻补一个（极旧数据/历史 bug；用户体验上不应该看到「未配置」）
+  ensureMainKey(userId);
   const row = db.prepare(`
     SELECT id, prefix, created_at, last_used_at, enabled, expires_at
     FROM api_keys
@@ -78,6 +80,55 @@ function fetchMainKeySummary(userId) {
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at || null,
   };
+}
+
+/**
+ * 确保某账号有 1 个主 Key（is_default=1），没有就当场补建。
+ *  - 用于「账号列表」「查看主 Key 明文」「刷新主 Key」等场景的自愈
+ *  - 历史原因：v0.7 之前创建的账号没有主 Key，且没有补建机制
+ *  - 也兜底一些极端场景（如软删/恢复后没回补）
+ *  - 不会重复创建：插入走 partial unique 约束冲突时直接 return
+ */
+function ensureMainKey(userId) {
+  if (!userId) return null;
+  const exist = db.prepare(`
+    SELECT id, prefix FROM api_keys
+    WHERE owner_user_id = ? AND is_default = 1 AND deleted_at IS NULL
+  `).get(userId);
+  if (exist) return exist;
+  const u = db.prepare('SELECT id, username FROM users WHERE id = ?').get(userId);
+  if (!u || u.id == null) return null;
+  // 主 Key 软删了但账号还在 → 复活（恢复成未删状态，避免一直拿不到明文）
+  const tomb = db.prepare(`
+    SELECT id FROM api_keys
+    WHERE owner_user_id = ? AND is_default = 1 AND deleted_at IS NOT NULL
+    ORDER BY id ASC LIMIT 1
+  `).get(userId);
+  if (tomb) {
+    db.prepare('UPDATE api_keys SET deleted_at = NULL WHERE id = ?').run(tomb.id);
+    return { id: tomb.id, restored: true };
+  }
+  // 完全没有 → 新建
+  try {
+    const mk = generateKey({
+      name: `${u.username}-main`,
+      prefix: 'sk_acc',
+      ownerUserId: userId,
+      isDefault: true,
+      owner: 'system',
+    });
+    console.log(`[accounts] 已为账号 ${u.username} 补建主 Key（prefix=${mk.prefix}…）`);
+    return { id: mk.id, created: true };
+  } catch (e) {
+    // 极端并发场景：刚好另一个请求先建了；忽略冲突即可
+    if (/UNIQUE|uniq_api_keys_default_per_account/i.test(e.message)) {
+      return db.prepare(`
+        SELECT id FROM api_keys
+        WHERE owner_user_id = ? AND is_default = 1 AND deleted_at IS NULL
+      `).get(userId) || null;
+    }
+    throw e;
+  }
 }
 
 /** 主 admin 判定已在 ../users.js 收口，本文件直接 import */
@@ -155,14 +206,21 @@ router.get('/:id/main-key', authMiddleware, (req, res) => {
   if (!canAccessAccount(req, u.id)) return err(res, 403, 'FORBIDDEN', '无权查看此账号的主 Key');
   if (u.disabled) return err(res, 409, 'ACCOUNT_DISABLED', '账号已停用，无法查看主 Key');
 
+  // 自愈：账号没主 Key 就当场补一个（v0.7 之前的老账号 / 异常数据）
+  const ensured = ensureMainKey(id);
+  const wasJustCreated = !!(ensured && ensured.created);
+
   const row = db.prepare(`
-    SELECT id, name, prefix, current_plain, original_plain, enabled, expires_at, last_used_at, created_at
+    SELECT id, name, prefix, current_plain, enabled, expires_at, last_used_at, created_at
     FROM api_keys
     WHERE owner_user_id = ? AND is_default = 1 AND deleted_at IS NULL
   `).get(id);
   if (!row) return err(res, 404, 'NO_MAIN_KEY', '该账号尚未配置主 Key');
 
-  const { currentPlain, originalPlain } = readPlain(row);
+  const { currentPlain } = readPlain(row);
+  if (wasJustCreated) {
+    audit({ req, action: 'AUTO_CREATE_MAIN_KEY', targetType: 'account', targetId: u.id, targetName: u.username, details: { keyId: row.id, prefix: row.prefix, reason: 'no_main_key' } });
+  }
   return ok(res, {
     accountId: u.id,
     username: u.username,
@@ -171,13 +229,14 @@ router.get('/:id/main-key', authMiddleware, (req, res) => {
     name: row.name,
     prefix: row.prefix,
     currentPlain,
-    originalPlain,
-    isOriginal: currentPlain === originalPlain,
     enabled: !!row.enabled,
     expiresAt: row.expires_at || null,
     lastUsedAt: row.last_used_at || null,
     createdAt: row.created_at,
-    warning: '主 Key 是该账号的「凭证钥匙」。请妥善保存明文，关闭后将无法再查看。',
+    autoCreated: wasJustCreated || undefined,   // 让前端知道这是「补建的」新 Key
+    warning: wasJustCreated
+      ? '检测到该账号未配置主 Key，已自动补建。以下明文仅此刻显示，请立即复制保存！'
+      : '主 Key 是该账号的「凭证钥匙」。请妥善保存明文，关闭后将无法再查看。',
   });
 });
 
@@ -189,29 +248,46 @@ router.post('/:id/main-key/reroll', authMiddleware, (req, res) => {
   if (!canAccessAccount(req, u.id)) return err(res, 403, 'FORBIDDEN', '无权刷新此账号的主 Key');
   if (u.disabled) return err(res, 409, 'ACCOUNT_DISABLED', '账号已停用，请先启用再刷新主 Key');
 
-  const row = db.prepare(`
+  // 自愈：账号没主 Key 就直接补一个并当作「首次生成」返回
+  const ensured = ensureMainKey(id);
+  let row = db.prepare(`
     SELECT id, name FROM api_keys
     WHERE owner_user_id = ? AND is_default = 1 AND deleted_at IS NULL
   `).get(id);
   if (!row) return err(res, 404, 'NO_MAIN_KEY', '该账号尚未配置主 Key');
 
-  const r = rerollKey(row.id);
-  if (!r) return err(res, 500, 'REROLL_FAILED', '刷新失败');
-  audit({
-    req,
-    action: 'REROLL_MAIN_KEY',
-    targetType: 'account',
-    targetId: u.id,
-    targetName: u.username,
-    details: { keyId: r.id, prefix: r.prefix },
-  });
+  let r;
+  if (ensured && (ensured.created || ensured.restored)) {
+    // 补建的：直接读出现有明文返回（避免重复生成导致 original_plain 也被覆盖）
+    const full = db.prepare(`
+      SELECT current_plain FROM api_keys WHERE id = ?
+    `).get(row.id);
+    const { currentPlain } = readPlain(full);
+    r = { id: row.id, prefix: ensured.created ? (db.prepare('SELECT prefix FROM api_keys WHERE id = ?').get(row.id) || {}).prefix : null, plain: currentPlain, autoCreated: true };
+    if (!r.prefix) r.prefix = (db.prepare('SELECT prefix FROM api_keys WHERE id = ?').get(row.id) || {}).prefix;
+    audit({ req, action: 'AUTO_CREATE_MAIN_KEY', targetType: 'account', targetId: u.id, targetName: u.username, details: { keyId: row.id, prefix: r.prefix, reason: ensured.created ? 'no_main_key' : 'restored_from_soft_deleted' } });
+  } else {
+    r = rerollKey(row.id);
+    if (!r) return err(res, 500, 'REROLL_FAILED', '刷新失败');
+    audit({
+      req,
+      action: 'REROLL_MAIN_KEY',
+      targetType: 'account',
+      targetId: u.id,
+      targetName: u.username,
+      details: { keyId: r.id, prefix: r.prefix },
+    });
+  }
   return ok(res, {
     accountId: u.id,
     username: u.username,
     keyId: r.id,
     prefix: r.prefix,
     key: r.plain,
-    warning: '旧主 Key 已立即失效；新 Key 仅在此刻返回，请立即保存。',
+    autoCreated: r.autoCreated || undefined,
+    warning: r.autoCreated
+      ? '检测到该账号未配置主 Key，已自动补建并返回明文。旧 Key 不存在，无需担心失效问题。'
+      : '旧主 Key 已立即失效；新 Key 仅在此刻返回，请立即保存。',
   });
 });
 

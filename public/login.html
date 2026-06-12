@@ -16,27 +16,61 @@
       <button type="submit">登录</button>
       <p class="err" id="err"></p>
     </form>
+    <div style="text-align:center;margin-top:12px;">
+      <button id="theme-toggle-login" class="ghost" title="切换暗色主题" aria-label="切换主题" style="font-size:12px;">
+        <span class="theme-icon">🌙</span> 切换主题
+      </button>
+    </div>
   </main>
   <script>
+    // 暗色主题
+    (function() {
+      var THEME_KEY = 'km_theme';
+      function applyTheme(t) {
+        document.documentElement.setAttribute('data-theme', t);
+        var icon = document.querySelector('.theme-icon');
+        if (icon) icon.textContent = t === 'dark' ? '☀️' : '🌙';
+      }
+      var t = localStorage.getItem(THEME_KEY);
+      if (!t) t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      applyTheme(t);
+      document.getElementById('theme-toggle-login').addEventListener('click', function() {
+        var cur = document.documentElement.getAttribute('data-theme') || 'light';
+        var next = cur === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(THEME_KEY, next);
+        applyTheme(next);
+      });
+    })();
+
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const fd = new FormData(e.target);
-      const err = document.getElementById('err');
+      var fd = new FormData(e.target);
+      var err = document.getElementById('err');
       err.textContent = '';
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: fd.get('username'),
-          password: fd.get('password'),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        err.textContent = data.error || '登录失败';
-        return;
+      var btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      btn.textContent = '登录中…';
+      try {
+        var res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: fd.get('username'),
+            password: fd.get('password'),
+          }),
+        });
+        var data = await res.json().catch(function() { return {}; });
+        if (!res.ok) {
+          err.textContent = data.error || '登录失败';
+          return;
+        }
+        location.href = '/';
+      } catch (ex) {
+        err.textContent = '网络错误，请重试';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '登录';
       }
-      location.href = '/';
     });
   </script>
 </body>

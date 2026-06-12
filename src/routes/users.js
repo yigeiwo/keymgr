@@ -55,7 +55,7 @@ router.post('/', authMiddleware, requireRole('admin'), (req, res) => {
     return err(res, 409, 'NAME_TAKEN', exists.deleted_at ? 'username 已被删除' : 'username 已存在', 'username');
   }
 
-  const hash = bcrypt.hashSync(String(password), 8);
+  const hash = bcrypt.hashSync(String(password), 10);
   let userId, mainKey;
   try {
     const tr = db.transaction(() => {
@@ -117,7 +117,7 @@ router.patch('/:id', authMiddleware, requireRole('admin'), (req, res) => {
   }
   if (password !== undefined) {
     const pe = validatePassword(password); if (pe) return err(res, 400, 'INVALID_PASSWORD', pe, 'password');
-    sets.push('password_hash = ?'); args.push(bcrypt.hashSync(String(password), 8));
+    sets.push('password_hash = ?'); args.push(bcrypt.hashSync(String(password), 10));
   }
   if (displayName !== undefined) {
     sets.push('display_name = ?'); args.push(displayName == null ? null : String(displayName).slice(0, 64));

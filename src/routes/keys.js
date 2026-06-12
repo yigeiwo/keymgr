@@ -31,6 +31,28 @@ function validateExpiresAt(v) {
   if (d.getTime() < Date.now() - 60_000) return 'expiresAt 不能是过去时间';
   return null;
 }
+// tag 单项：与变量 group 同字符集，1~32 字符
+const TAG_NAME_RE = /^[A-Za-z0-9_.\-]{1,32}$/;
+function validateTagName(name) {
+  if (typeof name !== 'string') return 'tag 必须是字符串';
+  if (!TAG_NAME_RE.test(name)) return 'tag 仅允许字母/数字/下划线/中划线/点，长度 1~32';
+  return null;
+}
+
+/**
+ * 把「tag 名」转成 LIKE 模式（精确匹配 JSON 数组里的某一项）：
+ *   ["prod","billing"] 里的 "prod" → 匹配，不误匹配 "myprod"
+ * 用 4 个 LIKE 分支覆盖数组首/中/末/单元素四种位置。
+ */
+function buildTagLikePatterns(tag) {
+  const escaped = String(tag).replace(/"/g, '\\"');
+  return [
+    `%"${escaped}"%`,    // 任意位置
+    `[%"${escaped}",%`,  // 数组首
+    `%,%"${escaped}"]%`, // 数组中间
+    `["${escaped}"]`,    // 单元素数组
+  ];
+}
 
 /**
  * 解析「目标账号」：把 account / ownerUserId / ownerUsername 转成 user_id。
@@ -102,7 +124,11 @@ router.get('/', (req, res) => {
   if (scope.error) return;
 
   const q = (req.query.q || '').toString().trim();
-  const tag = (req.query.tag || '').toString().trim();
+  // tag 支持单值或逗号分隔多值（OR 关系：含任意一个就匹配）
+  const tagRaw = (req.query.tag || '').toString().trim();
+  const tags = tagRaw ? tagRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+  // owner 单值精确过滤
+  const owner = (req.query.owner || '').toString().trim();
   const includeDeleted = req.query.includeDeleted === '1';
   const isAdmin = req.user && req.user.role === 'admin';
   const includeMain = isAdmin && req.query.includeMain === '1';
@@ -112,12 +138,20 @@ router.get('/', (req, res) => {
   // 隔离：主 Key（is_default=1）只在显式 includeMain=1 时才进列表
   if (!includeMain) { conds.push('k.is_default = 0'); }
   if (q) { conds.push('(k.name LIKE ? OR k.prefix LIKE ? OR k.owner LIKE ?)'); const k = `%${q}%`; args.push(k, k, k); }
-  if (tag) {
-    // 精确匹配某个 tag：tags 是 JSON 数组字符串 '["prod","billing"]'
-    // 找 "tag" 但不匹配 "myprod"：先按 JSON 边界匹配 ', "tag"' 或 '["tag"'
-    const escaped = String(tag).replace(/"/g, '\\"');
-    conds.push('(k.tags LIKE ? OR k.tags LIKE ? OR k.tags LIKE ? OR k.tags = ?)');
-    args.push(`%"${escaped}"%`, `[%"${escaped}"%,%`, `%,%"${escaped}"]%`, `["${escaped}"]`);
+  if (owner) { conds.push('k.owner = ?'); args.push(owner); }
+  // tag 多值之间是 OR 关系：含任一即匹配。1 个值时退化为单条子条件。
+  const validTags = tags.filter(t => TAG_NAME_RE.test(t));
+  if (validTags.length === 1) {
+    const patterns = buildTagLikePatterns(validTags[0]);
+    conds.push('(' + patterns.map(() => 'k.tags LIKE ?').join(' OR ') + ')');
+    args.push(...patterns);
+  } else if (validTags.length > 1) {
+    const subConds = validTags.map(t => {
+      const patterns = buildTagLikePatterns(t);
+      args.push(...patterns);
+      return '(' + patterns.map(() => 'k.tags LIKE ?').join(' OR ') + ')';
+    });
+    conds.push('(' + subConds.join(' OR ') + ')');
   }
   const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
   const rows = db.prepare(`
@@ -129,6 +163,115 @@ router.get('/', (req, res) => {
   `).all(...args);
   res.json({
     ok: true,
+    items: rows.map(r => ({
+      ...r,
+      enabled: !!r.enabled,
+      meta: r.meta ? JSON.parse(r.meta) : null,
+      tags: r.tags ? JSON.parse(r.tags) : [],
+      ownerUserId: r.owner_user_id,
+      ownerUsername: r.owner_username,
+      isDefault: !!r.is_default,
+    })),
+  });
+});
+
+// 列出所有 tag + 计数（与 /api/variables/groups 对齐）
+// 走 JS 端聚合：扫一遍可见 keys，count 各 tag 出现次数。
+router.get('/tags', (req, res) => {
+  const scope = resolveAccountScope(req, { allowAll: false });
+  if (scope.error) return;
+
+  const isAdmin = req.user && req.user.role === 'admin';
+  const includeMain = isAdmin && req.query.includeMain === '1';
+  const includeDeleted = req.query.includeDeleted === '1';
+
+  const conds = []; const args = [];
+  if (!includeDeleted) conds.push('deleted_at IS NULL');
+  if (scope.userId !== null) { conds.push('owner_user_id = ?'); args.push(scope.userId); }
+  if (!includeMain) conds.push('is_default = 0');
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+
+  const rows = db.prepare(`SELECT tags FROM api_keys ${where}`).all(...args);
+  const counter = new Map();
+  for (const r of rows) {
+    if (!r.tags) continue;
+    let arr;
+    try { arr = JSON.parse(r.tags); } catch { continue; }
+    if (!Array.isArray(arr)) continue;
+    for (const t of arr) {
+      if (typeof t !== 'string' || !t) continue;
+      counter.set(t, (counter.get(t) || 0) + 1);
+    }
+  }
+  const items = [...counter.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return ok(res, { items });
+});
+
+// 列出所有 owner + 计数（与 /api/keys/tags 对齐）
+// owner 是单值字符串，SQL GROUP BY 即可
+router.get('/owners', (req, res) => {
+  const scope = resolveAccountScope(req, { allowAll: false });
+  if (scope.error) return;
+
+  const isAdmin = req.user && req.user.role === 'admin';
+  const includeMain = isAdmin && req.query.includeMain === '1';
+  const includeDeleted = req.query.includeDeleted === '1';
+
+  const conds = []; const args = [];
+  if (!includeDeleted) conds.push('deleted_at IS NULL');
+  if (scope.userId !== null) { conds.push('owner_user_id = ?'); args.push(scope.userId); }
+  if (!includeMain) conds.push('is_default = 0');
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const rows = db.prepare(`
+    SELECT owner AS name, COUNT(*) AS count
+    FROM api_keys ${where}
+    GROUP BY owner
+    ORDER BY owner ASC
+  `).all(...args);
+  // 过滤空字符串（owner = '' 或 null）—— 这些不算合法 owner
+  const items = rows.filter(r => r.name && r.name.trim()).map(r => ({ name: r.name, count: r.count }));
+  return ok(res, { items });
+});
+
+// 按 tag 拿到所有 key（与 /api/variables/group/:name 对齐）
+// 通过 LIKE 精确匹配 JSON 数组里的某一项，避免误匹配子串
+router.get('/tag/:name', (req, res) => {
+  const scope = resolveAccountScope(req, { allowAll: false });
+  if (scope.error) return;
+
+  const name = String(req.params.name || '').trim();
+  const vErr = validateTagName(name);
+  if (vErr) return err(res, 400, 'INVALID_TAG', vErr, 'name');
+
+  const isAdmin = req.user && req.user.role === 'admin';
+  const includeMain = isAdmin && req.query.includeMain === '1';
+  const includeDeleted = req.query.includeDeleted === '1';
+
+  const conds = []; const args = [];
+  if (!includeDeleted) conds.push('k.deleted_at IS NULL');
+  if (scope.userId !== null) { conds.push('k.owner_user_id = ?'); args.push(scope.userId); }
+  if (!includeMain) conds.push('k.is_default = 0');
+  const patterns = buildTagLikePatterns(name);
+  conds.push('(' + patterns.map(() => 'k.tags LIKE ?').join(' OR ') + ')');
+  args.push(...patterns);
+
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const rows = db.prepare(`
+    SELECT k.id, k.name, k.prefix, k.meta, k.owner, k.tags, k.enabled, k.expires_at, k.created_at, k.last_used_at, k.deleted_at,
+           k.owner_user_id, k.is_default, u.username AS owner_username
+    FROM api_keys k LEFT JOIN users u ON u.id = k.owner_user_id
+    ${where}
+    ORDER BY k.id DESC
+  `).all(...args);
+
+  if (!rows.length) {
+    return err(res, 404, 'TAG_NOT_FOUND', `tag ${name} 不存在或没有匹配的 key`);
+  }
+  return ok(res, {
+    tag: name,
+    count: rows.length,
     items: rows.map(r => ({
       ...r,
       enabled: !!r.enabled,
@@ -164,18 +307,18 @@ router.get('/:id', (req, res) => {
 
 router.get('/:id/plain', (req, res) => {
   const row = db.prepare(`
-    SELECT k.id, k.name, k.current_plain, k.original_plain, k.owner_user_id
+    SELECT k.id, k.name, k.current_plain, k.owner_user_id
     FROM api_keys k WHERE k.id = ?
   `).get(req.params.id);
   if (!row) return err(res, 404, 'NOT_FOUND', 'key 不存在');
   if (!canActOnKey(req, row)) return err(res, 403, 'FORBIDDEN', '无权查看此 key');
-  const { currentPlain, originalPlain } = readPlain(row);
+  // 历史 key 不可调用：只返回当前有效明文，不再返回 originalPlain。
+  // 业务侧 verify 仍走 hash 匹配，重置过的 key 历史值已不匹配。
+  const { currentPlain } = readPlain(row);
   return ok(res, {
     id: row.id,
     name: row.name,
     currentPlain,
-    originalPlain,
-    isOriginal: currentPlain === originalPlain,
   });
 });
 

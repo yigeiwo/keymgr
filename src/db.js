@@ -26,6 +26,7 @@ async function init() {
   runMigrations();
   ensureDefaultAdmin();
   backfillMainKeys();
+  purgeHistoricalOriginals();
   installShutdownHooks();
   return _db;
 }
@@ -53,9 +54,10 @@ function ensureDefaultAdmin() {
 }
 
 /**
- * 为没有主 Key 的账号补建 1 个（迁移后回填）。
+ * 为没有主 Key 的账号补建 1 个（迁移后回填 + 极端场景兜底）。
  *  - 老用户升级到 0007 后立刻生效
  *  - 新建用户由 routes/users.js 在创建时同步建（无需回填）
+ *  - 运行时也兜底：routes/accounts.js 的 ensureMainKey 会按需补建
  */
 function backfillMainKeys() {
   // 检查 api_keys 是否有 is_default 列（迁移前/后差异）
@@ -66,11 +68,13 @@ function backfillMainKeys() {
   } catch (_) { return; }
   if (!hasIsDefault) return;
 
+  // 注意：这里不过滤 disabled —— 即便被禁用的账号也要补主 Key，
+  // 方便 admin 后续「启用」时立即可用，不用再多走一次自愈
   const missing = _db.exec(`
     SELECT u.id, u.username FROM users u
-    WHERE u.disabled = 0
+    WHERE u.deleted_at IS NULL
       AND NOT EXISTS (
-        SELECT 1 FROM api_keys k WHERE k.owner_user_id = u.id AND k.is_default = 1
+        SELECT 1 FROM api_keys k WHERE k.owner_user_id = u.id AND k.is_default = 1 AND k.deleted_at IS NULL
       )
   `);
   if (!missing[0] || !missing[0].values.length) return;
@@ -92,8 +96,32 @@ function backfillMainKeys() {
       `, [`${uname}-main`, keyPrefix, sha, enc, enc, uid]);
       console.log(`[init] 已为账号 ${uname} 补建主 Key（prefix=${keyPrefix}…）`);
     } catch (e) {
-      console.log(`[init] 为账号 ${uname} 补建主 Key 失败：${e.message}`);
+      // 并发 / 唯一约束冲突 —— 静默忽略，运行时自愈会兜底
+      if (!/UNIQUE|uniq_api_keys_default_per_account/i.test(e.message)) {
+        console.log(`[init] 为账号 ${uname} 补建主 Key 失败：${e.message}`);
+      }
     }
+  }
+}
+
+/**
+ * 清空历史 Key 残留。
+ * 业务变更：刷新后旧 key 不再保留（原来 original_plain 会被覆盖为 current_plain）。
+ * 对仍在使用原 original_plain 值的行做一次清理，让语义和新策略一致。
+ * 注意：只能从 encrypted 密文层面比对 —— original_plain 已被 AES 加密，每次都不同密文；
+ *       所以直接走"凡是 original_plain != current_plain 的都覆盖"的策略，统一刷一遍。
+ *       这步不可逆 —— 重置过的 key 的"创建时"明文会被永久擦除。
+ */
+function purgeHistoricalOriginals() {
+  try {
+    const info = _db.exec("PRAGMA table_info(api_keys)");
+    if (!info[0]) return;
+    const cols = info[0].values.map(r => r[1]);
+    if (!cols.includes('original_plain') || !cols.includes('current_plain')) return;
+    const res = _db.run(`UPDATE api_keys SET original_plain = current_plain WHERE original_plain != current_plain`);
+    if (res.changes) console.log(`[init] 已清空 ${res.changes} 行历史 original_plain（统一覆盖为 current_plain）`);
+  } catch (e) {
+    console.log('[init] 清空历史 original_plain 失败：' + e.message);
   }
 }
 

@@ -1,15 +1,18 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
-const { encrypt, decrypt, isEncrypted } = require('./crypto');
+const { encrypt, decrypt } = require('./crypto');
 
 /**
  * 生成一个 key：
  *   形如：sk_live_<prefix>_<random>
  *  - prefix 用于在日志/列表中肉眼识别
- *  - 数据库存 hash + encrypted(original_plain) + encrypted(current_plain)
+ *  - 数据库存 hash + encrypted(current_plain)
  *  - 明文只在创建/重置瞬间返回给用户
  *  - isDefault=1 时表示该 key 是账号的「主 Key」（每个账号 1 个，由 partial unique 约束）
+ *
+ * 注：original_plain 字段保留是为了兼容旧 schema / 旧导入的 Key；
+ *     重置时会同步覆盖，历史 key 不再保留 —— 业务侧只认 current_plain 的 hash。
  */
 function generateKey({ name, meta, expiresAt, prefix = 'sk_live', owner, tags, ownerUserId = null, isDefault = false }) {
   const random = crypto.randomBytes(24).toString('base64url');
@@ -79,10 +82,14 @@ function importKey({ name, plain, meta, expiresAt, prefix = null, owner, tags, o
 }
 
 /**
- * 重新生成某个 Key 的明文 —— 旧 key 立即失效，original_plain 保留。
+ * 重新生成某个 Key 的明文 —— 旧 key 立即失效。
+ *
+ * 注意：重置时连同 original_plain 一起覆盖为新值 —— 历史 key 不再保留，
+ * 避免「重置过的 key 还能拿回创建时的」这种「历史可调用」语义。
+ * 业务侧 verify 仍然只看 current_plain 的 hash 匹配，所以重置后旧 key 必然 401。
  */
 function rerollKey(id) {
-  const row = db.prepare('SELECT id, prefix, original_plain FROM api_keys WHERE id = ?').get(id);
+  const row = db.prepare('SELECT id, prefix FROM api_keys WHERE id = ?').get(id);
   if (!row) return null;
 
   // 复用原有 prefix 段位
@@ -100,19 +107,14 @@ function rerollKey(id) {
   const plain = `${prefix}_${random}`;
   const hash = crypto.createHash('sha256').update(plain).digest('hex');
 
-  // 如果原 key 还没保存过（极旧数据），把 current_plain 视为 original
-  let originalEnc = row.original_plain;
-  if (!originalEnc) originalEnc = encrypt(plain);
-  // 如果存的是旧库明文（未加密），先加密再写回
-  else if (!isEncrypted(originalEnc)) originalEnc = encrypt(decrypt(originalEnc));
+  const enc = encrypt(plain);
 
-  const currentEnc = encrypt(plain);
-
+  // 关键修改：重置时 original_plain 也跟着覆盖为新值，历史 key 不再保留
   db.prepare(`
     UPDATE api_keys
     SET prefix = ?, hash = ?, current_plain = ?, original_plain = ?, last_used_at = NULL
     WHERE id = ?
-  `).run(prefix, hash, currentEnc, originalEnc, id);
+  `).run(prefix, hash, enc, enc, id);
 
   return { id, prefix, plain };
 }

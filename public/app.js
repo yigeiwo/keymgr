@@ -2,6 +2,54 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+/**
+ * 把 picker 下拉浮层定位到 trigger 正下方（fixed 定位）。
+ * 解决两个问题：
+ *   1) 父级 overflow:hidden/auto（如 modal-card 的 overflow-y:auto）会裁切 position:absolute 子级
+ *   2) 多层嵌套下，position:absolute 的层级很容易被相邻元素盖住
+ * 用 fixed 定位后，浮层挂在 viewport 上下文里，不会被父级裁切，z-index 也能稳定生效。
+ */
+function positionPickerPanel(panel, trigger) {
+  if (!panel || !trigger) return;
+  panel.classList.add('picker-floating');  // CSS 用这个类切换到 fixed 定位
+  // 用 rAF 让浏览器先把布局算完再读 rect，避免读到旧位置
+  requestAnimationFrame(() => {
+    const r = trigger.getBoundingClientRect();
+    const top = r.bottom + 4;
+    const left = r.left;
+    const width = r.width;
+    panel.style.position = 'fixed';
+    panel.style.top = top + 'px';
+    panel.style.left = left + 'px';
+    panel.style.width = width + 'px';
+    panel.style.maxHeight = Math.max(160, window.innerHeight - top - 8) + 'px';
+  });
+}
+
+/**
+ * 浮层开着时，窗口滚动 / 缩放时需要跟着重定位。
+ * 挂在 window 上（capture 阶段），避免某些滚动容器（如 modal-card）不冒泡。
+ */
+window.addEventListener('scroll', repositionOpenPickerPanels, true);
+window.addEventListener('resize', repositionOpenPickerPanels);
+function repositionOpenPickerPanels() {
+  $$('.picker-floating').forEach((panel) => {
+    if (panel.hidden) return;
+    // 通过 id 反查 trigger：约定 panel id 形如 "var-group-panel" / "key-owner-new-panel"
+    // 对应的 trigger 是 id 去 "-panel" 后缀 + "-trigger" / "-new-trigger" / "-edit-trigger"
+    // 简单地：找最近的 group-picker / tag-picker 容器里的 [id$="-trigger"]
+    const wrap = panel.closest('.group-picker, .tag-picker');
+    if (!wrap) return;
+    const trigger = wrap.querySelector('[id$="-trigger"]');
+    if (!trigger) return;
+    const r = trigger.getBoundingClientRect();
+    panel.style.top = (r.bottom + 4) + 'px';
+    panel.style.left = r.left + 'px';
+    panel.style.width = r.width + 'px';
+    panel.style.maxHeight = Math.max(160, window.innerHeight - r.bottom - 12) + 'px';
+  });
+}
+
 // 防抖：连续触发时只在停顿 ms 后执行一次
 function debounce(fn, ms = 250) {
   let t = null;
@@ -126,6 +174,8 @@ function escapeHtml(s) {
 
 let keySearchTerm = '';
 let keyAccountFilter = '';   // admin 限定看哪个账号
+let keyTagFilter = '';       // 按 tag 过滤（OR 关系，逗号分隔），'' = 不过滤
+let keyOwnerFilter = '';     // 按 owner 过滤（单值），'' = 不过滤
 let showDeleted = false;
 let allKeys = [];
 let allUsers = [];             // admin 才能拉到
@@ -159,10 +209,21 @@ async function loadKeys() {
     if (keyAccountFilter.startsWith('u:')) qs.set('ownerUserId', keyAccountFilter.slice(2));
     else if (keyAccountFilter.startsWith('s:')) qs.set('account', keyAccountFilter.slice(2));
   }
+  if (keyTagFilter) qs.set('tag', keyTagFilter);
+  if (keyOwnerFilter) qs.set('owner', keyOwnerFilter);
   const q = qs.toString() ? `?${qs.toString()}` : '';
   const { items } = await api('/api/keys' + q);
   allKeys = items;
+  // 顺便刷一下 tag + owner 缓存（picker 用）
+  api('/api/keys/tags').then(r => { allKeyTags = r.items || []; renderTagFilter(); }).catch(() => {});
+  api('/api/keys/owners').then(r => { allKeyOwners = r.items || []; renderOwnerFilter(); }).catch(() => {});
   renderKeys();
+  // 更新标题旁的计数
+  const cnt = $('#keys-count');
+  if (cnt) {
+    const total = items.length;
+    cnt.textContent = total === 0 ? '（空）' : `共 ${total} 条`;
+  }
 }
 
 function renderKeys() {
@@ -172,36 +233,49 @@ function renderKeys() {
     tbody.innerHTML = `<tr><td colspan="11"><div class="empty">还没有 Key，点右上角 <b>+ 新建 Key</b> 开始创建。</div></td></tr>`;
     return;
   }
+  // 紧凑时间（不带日期），避免换行；过长则省略
+  const shortTime = (s) => {
+    if (!s) return '—';
+    return s.replace('T', ' ').replace('Z', '').slice(5, 16); // MM-DD HH:MM
+  };
+  const fullTime = (s) => s ? fmtTime(s) : '—';
   tbody.innerHTML = items.map((k, i) => {
-    const tagsHtml = (k.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
+    const tagsHtml = (k.tags || []).map(t =>
+      `<span class="tag" data-tag-filter="${escapeHtml(t)}" title="点击按该 tag 过滤">${escapeHtml(t)}</span>`
+    ).join('');
     const isDel = !!k.deleted_at;
-    const delBadge = isDel ? `<span class="badge warn" title="${escapeHtml(k.deleted_at)}">已删除</span>` : '';
+    const delBadge = isDel ? `<span class="badge warn" title="${escapeHtml(k.deleted_at)}">已删</span>` : '';
     // Keys 列表只显示普通 key（is_default=0）；主 Key 走「账号管理」页面
     const acct = k.ownerUsername
       ? `<span class="badge ${k.ownerUsername === currentUser?.username ? 'ok' : ''}">${escapeHtml(k.ownerUsername)}</span>`
       : `<span class="muted" title="老库兼容：未归属">—</span>`;
     return `
     <tr ${isDel ? 'style="opacity:.6;"' : ''}>
-      <td><b>${i + 1}</b></td>
-      <td>${escapeHtml(k.name)}${delBadge}</td>
-      <td><code>${escapeHtml(k.prefix)}…</code></td>
-      <td>${acct}</td>
-      <td>${k.owner ? escapeHtml(k.owner) : '<span class="muted">-</span>'}</td>
-      <td>${tagsHtml || '<span class="muted">-</span>'}</td>
-      <td>${k.enabled ? '<span class="badge ok">启用</span>' : '<span class="badge fail">停用</span>'}</td>
-      <td>${fmtTime(k.expires_at) || '-'}</td>
-      <td>${fmtTime(k.last_used_at) || '-'}</td>
-      <td>${fmtTime(k.created_at)}</td>
-      <td>
-        <button class="ghost primary-act" data-act="copy" data-id="${k.id}" title="从数据库取当前 key 并复制">复制</button>
-        <button class="ghost" data-act="copyOriginal" data-id="${k.id}" title="从数据库取原始 key 并复制（重置过的 key 也能拿回创建时的）">原 key</button>
+      <td data-label="#"><b>${i + 1}</b></td>
+      <td data-label="名称">
+        <div class="primary-name">${escapeHtml(k.name)}</div>
+        ${delBadge}
+        ${k.meta ? `<div class="secondary">${Object.keys(k.meta).length} meta</div>` : ''}
+      </td>
+      <td data-label="前缀" data-col="prefix" class="mono">${escapeHtml(k.prefix)}…</td>
+      <td data-label="账号">${acct}</td>
+      <td data-label="owner">${k.owner
+          ? `<span class="tag" data-owner-filter="${escapeHtml(k.owner)}" title="点击按该 owner 过滤">${escapeHtml(k.owner)}</span>`
+          : '<span class="muted">—</span>'}</td>
+      <td data-label="tags" class="tags-cell"><div class="tags-cell-inner">${tagsHtml || '<span class="muted">—</span>'}</div></td>
+      <td data-label="状态">${k.enabled ? '<span class="badge ok">启用</span>' : '<span class="badge fail">停用</span>'}</td>
+      <td data-label="过期" data-col="time" title="${escapeHtml(fullTime(k.expires_at))}">${shortTime(k.expires_at)}</td>
+      <td data-label="最近使用" data-col="time" title="${escapeHtml(fullTime(k.last_used_at))}">${shortTime(k.last_used_at)}</td>
+      <td data-label="创建时间" data-col="time" title="${escapeHtml(fullTime(k.created_at))}">${shortTime(k.created_at)}</td>
+      <td data-label="操作" class="actions-cell">
+        <button class="ghost primary-act" data-act="copy" data-id="${k.id}" data-label="📋" title="复制当前 key"></button>
         ${isDel
-          ? `<button class="ghost" data-act="restore" data-id="${k.id}" title="30 天内可恢复">恢复</button>
-             <button class="ghost" data-act="purge" data-id="${k.id}" title="永久删除，不可恢复">永久删</button>`
-          : `<button class="ghost" data-act="edit" data-id="${k.id}" title="编辑 name / owner / tags / 过期 / 账号">编辑</button>
-             <button class="ghost" data-act="reroll" data-id="${k.id}" title="生成新 key，旧 key 立即失效">重置</button>
-             <button class="ghost" data-act="toggle" data-id="${k.id}">${k.enabled ? '停用' : '启用'}</button>
-             <button class="ghost" data-act="del" data-id="${k.id}">删除</button>`
+          ? `<button class="ghost" data-act="restore" data-id="${k.id}" data-label="↩" title="30 天内可恢复"></button>
+             <button class="ghost" data-act="purge" data-id="${k.id}" data-label="✕" title="永久删除"></button>`
+          : `<button class="ghost" data-act="edit" data-id="${k.id}" data-label="✎" title="编辑"></button>
+             <button class="ghost" data-act="reroll" data-id="${k.id}" data-label="⟳" title="重置"></button>
+             <button class="ghost" data-act="toggle" data-id="${k.id}" data-label="${k.enabled ? '⏸' : '▶'}" title="${k.enabled ? '停用' : '启用'}"></button>
+             <button class="ghost" data-act="del" data-id="${k.id}" data-label="🗑" title="删除"></button>`
         }
       </td>
     </tr>`;
@@ -213,9 +287,46 @@ $('#key-search')?.addEventListener('input', debounce((e) => {
   loadKeys();
 }, 200));
 
+// key help 按钮（展开/折叠说明）
+$('#key-help-toggle')?.addEventListener('click', (e) => {
+  const help = $('#key-help');
+  const btn = e.currentTarget;
+  if (!help) return;
+  const open = help.classList.toggle('is-open');
+  btn.textContent = open ? '说明 ▴' : '说明 ▾';
+});
+
 $('#key-account-filter')?.addEventListener('change', (e) => {
   keyAccountFilter = e.target.value;
   loadKeys();
+});
+
+// tag 过滤：多选（按住 Ctrl/Cmd 可选多个；点击外部也提交变更）
+$('#key-tag-filter')?.addEventListener('change', (e) => {
+  const sel = e.target;
+  const vals = Array.from(sel.selectedOptions).map(o => o.value).filter(Boolean);
+  keyTagFilter = vals.join(',');
+  loadKeys();
+});
+// owner 过滤：单选
+$('#key-owner-filter')?.addEventListener('change', (e) => {
+  keyOwnerFilter = e.target.value;
+  loadKeys();
+});
+// 标签 chip 点击 → 把 tag 设为当前过滤（替换，而非追加）
+$('#keys-tbody')?.addEventListener('click', (e) => {
+  const tag = e.target.closest('[data-tag-filter]');
+  if (tag) {
+    keyTagFilter = tag.dataset.tagFilter;
+    loadKeys();
+    return;
+  }
+  // owner chip 点击 → 把 owner 设为当前过滤
+  const owner = e.target.closest('[data-owner-filter]');
+  if (owner) {
+    keyOwnerFilter = owner.dataset.ownerFilter;
+    loadKeys();
+  }
 });
 
 /**
@@ -309,21 +420,12 @@ $('#keys-tbody').addEventListener('click', async (e) => {
     try {
       const r = await api(`/api/keys/${id}/plain`);
       const ok = await copyText(r.currentPlain);
-      const tag = r.isOriginal ? '（原 key）' : '（当前 key）';
-      toast(ok ? `已复制 ${tag}` : '复制失败', ok ? 'ok' : 'err');
+      toast(ok ? '已复制当前 key' : '复制失败', ok ? 'ok' : 'err');
     } catch (e) {
       // 老库无 plain 字段时降级
       if (e.status === 404) toast('该 key 不存在', 'err');
       else toast('复制失败：' + e.message, 'err');
     }
-  } else if (btn.dataset.act === 'copyOriginal') {
-    // 复制原始 key
-    try {
-      const r = await api(`/api/keys/${id}/plain`);
-      if (!r.originalPlain) { toast('该 key 无原始 key 记录', 'warn'); return; }
-      const ok = await copyText(r.originalPlain);
-      toast(ok ? '已复制原 key' : '复制失败', ok ? 'ok' : 'err');
-    } catch (e) { toast('复制失败：' + e.message, 'err'); }
   } else if (btn.dataset.act === 'edit') {
     const item = allKeys.find(x => String(x.id) === String(id));
     if (item) openEditKeyModal(item);
@@ -376,6 +478,12 @@ function openModal() {
   $('#new-key-form').reset();
   setMode('generate');
   populateAccountSelects();
+  // owner picker 初始化（空）+ 拉 owner 列表缓存
+  setOwnerPickerValue('new', '');
+  api('/api/keys/owners').then(r => { allKeyOwners = r.items || []; }).catch(() => { allKeyOwners = []; });
+  initTagPicker('new', []);   // 全新为空
+  // 拉一次所有 tag 缓存，下拉里展示
+  api('/api/keys/tags').then(r => { allKeyTags = r.items || []; }).catch(() => { allKeyTags = []; });
   $('#new-key-modal').hidden = false;
   setTimeout(() => $('input[name="name"]', $('#new-key-form')).focus(), 50);
 }
@@ -547,10 +655,13 @@ $('#new-key-form').addEventListener('submit', async (e) => {
   // 归属账号
   const ownerUid = (fd.get('ownerUserId') || '').toString().trim();
   if (ownerUid) body.ownerUserId = parseInt(ownerUid, 10);
-  // tags: 逗号 / 空格分隔
-  const tagsRaw = (fd.get('tags') || '').toString();
-  const tags = tagsRaw
-    .split(/[,\s，、]+/g).map(s => s.trim()).filter(Boolean);
+  // tags: 来自 tag-picker 的 hidden（JSON 数组）
+  let tags = [];
+  try {
+    const raw = (fd.get('tags') || '[]').toString();
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) tags = arr.map(s => String(s).trim()).filter(Boolean);
+  } catch (_) { tags = []; }
   if (tags.length) body.tags = tags;
 
   // 两个模式各自的字段
@@ -605,15 +716,21 @@ async function loadLogs() {
   const tbody = $('#logs-tbody');
   tbody.innerHTML = items.map(l => `
     <tr>
-      <td>${fmtTime(l.created_at)}</td>
-      <td><span class="badge ${l.result}">${l.result}</span></td>
-      <td>${escapeHtml(l.reason || '-')}</td>
-      <td><code>${escapeHtml(l.key_masked || '-')}</code></td>
-      <td>${escapeHtml(l.ip || '-')}</td>
-      <td title="${escapeHtml(l.user_agent || '')}" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(l.user_agent || '-')}</td>
-      <td>${l.duration_ms != null ? l.duration_ms.toFixed(2) : '-'}</td>
+      <td data-label="时间">${fmtTime(l.created_at)}</td>
+      <td data-label="结果"><span class="badge ${l.result}">${l.result}</span></td>
+      <td data-label="原因">${escapeHtml(l.reason || '-')}</td>
+      <td data-label="前缀" data-col="prefix"><code>${escapeHtml(l.key_masked || '-')}</code></td>
+      <td data-label="IP" data-col="ip">${escapeHtml(l.ip || '-')}</td>
+      <td data-label="UA" title="${escapeHtml(l.user_agent || '')}" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(l.user_agent || '-')}</td>
+      <td data-label="耗时(ms)" class="num">${l.duration_ms != null ? l.duration_ms.toFixed(2) : '-'}</td>
     </tr>
   `).join('');
+  // 计数
+  const cnt = $('#logs-count');
+  if (cnt) {
+    const total = items.length;
+    cnt.textContent = total === 0 ? '（空）' : `共 ${total} 条`;
+  }
 }
 
 (async function init() {
@@ -657,8 +774,13 @@ async function loadVariables() {
     const { items } = await api('/api/variables' + qs);
     allVariables = items || [];
     renderVariables();
+    const cnt = $('#vars-count');
+    if (cnt) {
+      const total = allVariables.length;
+      cnt.textContent = total === 0 ? '（空）' : `共 ${total} 个`;
+    }
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty">加载失败：${escapeHtml(e.message)}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty">加载失败：${escapeHtml(e.message)}</div></td></tr>`;
   }
 }
 
@@ -745,6 +867,8 @@ function openGroupPicker() {
   trigger.setAttribute('aria-expanded', 'true');
   ensureGroupPickerItems();
   renderGroupPickerList();
+  // 浮层定位（避开父级 overflow:auto 裁切，比如 modal-card 的滚动容器）
+  positionPickerPanel(panel, trigger);
   // 自动聚焦搜索框 + 选中现有值
   const search = $('#var-group-search');
   if (search) {
@@ -758,6 +882,13 @@ function closeGroupPicker() {
   if (!panel || !trigger) return;
   panel.hidden = true;
   trigger.setAttribute('aria-expanded', 'false');
+  // 浮层关闭时清掉 fixed 定位的 inline 样式 + 类，恢复普通 absolute 定位
+  panel.classList.remove('picker-floating');
+  panel.style.position = '';
+  panel.style.top = '';
+  panel.style.left = '';
+  panel.style.width = '';
+  panel.style.maxHeight = '';
   // 关闭时如有未提交输入，回退到 hidden 的当前值
   const hidden = $('#var-group-hidden');
   const search = $('#var-group-search');
@@ -770,6 +901,378 @@ function toggleGroupPicker() {
   else closeGroupPicker();
 }
 
+// ============== Owner Picker（单选，复用 group-picker 视觉，2 个实例：new/edit） ==============
+// 全局 owner 列表缓存：每次 loadKeys 时刷一次
+let allKeyOwners = []; // [{ name, count }]
+
+function setOwnerPickerValue(pfx, value) {
+  const hidden = $(`#key-owner-${pfx}-hidden`);
+  const label = $(`#key-owner-${pfx}-trigger-label`);
+  if (!hidden || !label) return;
+  const v = (value || '').trim();
+  hidden.value = v;
+  label.textContent = v || '（未指定）';
+  label.style.fontStyle = v ? 'normal' : 'italic';
+  label.style.color = v ? '' : 'var(--muted)';
+  const search = $(`#key-owner-${pfx}-search`);
+  if (search && document.activeElement !== search) search.value = v;
+}
+
+function ensureOwnerPickerItems(pfx) {
+  // 打开下拉时调用，确保已加载
+  if (!allKeyOwners.length) {
+    api('/api/keys/owners').then(r => {
+      allKeyOwners = r.items || [];
+      const panel = $(`#key-owner-${pfx}-panel`);
+      if (panel && !panel.hidden) renderOwnerPickerList(pfx);
+    }).catch(() => { allKeyOwners = []; });
+  }
+}
+
+function renderOwnerPickerList(pfx) {
+  const list = $(`#key-owner-${pfx}-list`);
+  if (!list) return;
+  const search = $(`#key-owner-${pfx}-search`);
+  const term = (search?.value || '').trim();
+  const current = ($(`#key-owner-${pfx}-hidden`)?.value || '').trim();
+  const owners = (allKeyOwners || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
+  const items = [];
+  // 1) "未指定" 选项
+  items.push(`
+    <div class="group-picker-item is-none ${current === '' ? 'is-selected' : ''}" data-value="" role="option" aria-selected="${current === ''}">
+      <span class="group-picker-item-name">（未指定）</span>
+    </div>
+  `);
+  // 2) 已有 owner（按搜索词过滤）
+  const filtered = term
+    ? owners.filter(o => o.name.toLowerCase().includes(term.toLowerCase()))
+    : owners;
+  for (const o of filtered) {
+    items.push(`
+      <div class="group-picker-item ${o.name === current ? 'is-selected' : ''}" data-value="${escapeHtml(o.name)}" role="option" aria-selected="${o.name === current}">
+        <span class="group-picker-item-name">${escapeHtml(o.name)}</span>
+        <span class="group-picker-item-count">${o.count}</span>
+      </div>
+    `);
+  }
+  // 3) 搜索词不为空且不等于已有 owner → 追加"创建"项
+  if (term) {
+    const exact = owners.find(o => o.name.toLowerCase() === term.toLowerCase());
+    if (!exact && term.length <= 64) {
+      items.push(`
+        <div class="group-picker-item is-create" data-value="${escapeHtml(term)}" role="option">
+          <span class="group-picker-item-name">✚ 新建 owner「${escapeHtml(term)}」</span>
+        </div>
+      `);
+    } else if (term.length > 64) {
+      items.push(`<div class="group-picker-empty">owner 最长 64 字符</div>`);
+    }
+  }
+  if (items.length === 1) {
+    items.push(`<div class="group-picker-empty">无匹配 owner，直接输入名称按 Enter 即用</div>`);
+  }
+  list.innerHTML = items.join('');
+  // 事件委托
+  list.onclick = (e) => {
+    const item = e.target.closest('.group-picker-item');
+    if (!item) return;
+    setOwnerPickerValue(pfx, item.dataset.value || '');
+    closeOwnerPicker(pfx);
+  };
+}
+
+function openOwnerPicker(pfx) {
+  const panel = $(`#key-owner-${pfx}-panel`);
+  const trigger = $(`#key-owner-${pfx}-trigger`);
+  if (!panel || !trigger) return;
+  panel.hidden = false;
+  trigger.setAttribute('aria-expanded', 'true');
+  ensureOwnerPickerItems(pfx);
+  renderOwnerPickerList(pfx);
+  // 浮层定位（避开父级 overflow:auto 裁切，比如 modal-card 的滚动容器）
+  positionPickerPanel(panel, trigger);
+  const search = $(`#key-owner-${pfx}-search`);
+  if (search) {
+    search.value = $(`#key-owner-${pfx}-hidden`)?.value || '';
+    setTimeout(() => { search.focus(); search.select(); }, 10);
+  }
+}
+function closeOwnerPicker(pfx) {
+  const panel = $(`#key-owner-${pfx}-panel`);
+  const trigger = $(`#key-owner-${pfx}-trigger`);
+  if (!panel || !trigger) return;
+  panel.hidden = true;
+  trigger.setAttribute('aria-expanded', 'false');
+  // 浮层关闭时清掉 fixed 定位的 inline 样式 + 类
+  panel.classList.remove('picker-floating');
+  panel.style.position = '';
+  panel.style.top = '';
+  panel.style.left = '';
+  panel.style.width = '';
+  panel.style.maxHeight = '';
+  const hidden = $(`#key-owner-${pfx}-hidden`);
+  const search = $(`#key-owner-${pfx}-search`);
+  if (search && hidden) search.value = hidden.value;
+}
+function toggleOwnerPicker(pfx) {
+  const panel = $(`#key-owner-${pfx}-panel`);
+  if (!panel) return;
+  if (panel.hidden) openOwnerPicker(pfx);
+  else closeOwnerPicker(pfx);
+}
+
+// 初始化某个 pfx 的 owner picker 事件
+function initOwnerPickerEvents(pfx) {
+  $(`#key-owner-${pfx}-trigger`)?.addEventListener('click', (e) => { e.stopPropagation(); toggleOwnerPicker(pfx); });
+  $(`#key-owner-${pfx}-search`)?.addEventListener('input', () => renderOwnerPickerList(pfx));
+  $(`#key-owner-${pfx}-search`)?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const v = $(`#key-owner-${pfx}-search`).value.trim();
+      if (v && v.length > 64) { toast('owner 最长 64 字符', 'err'); return; }
+      setOwnerPickerValue(pfx, v);
+      closeOwnerPicker(pfx);
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeOwnerPicker(pfx);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const items = Array.from(document.querySelectorAll(`#key-owner-${pfx}-list .group-picker-item`));
+      if (!items.length) return;
+      const cur = items.findIndex(it => it.classList.contains('is-active'));
+      let next = e.key === 'ArrowDown' ? cur + 1 : cur - 1;
+      if (next < 0) next = items.length - 1;
+      if (next >= items.length) next = 0;
+      items.forEach(it => it.classList.remove('is-active'));
+      items[next].classList.add('is-active');
+      items[next].scrollIntoView({ block: 'nearest' });
+    }
+  });
+  $(`#key-owner-${pfx}-clear`)?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setOwnerPickerValue(pfx, '');
+    renderOwnerPickerList(pfx);
+    $(`#key-owner-${pfx}-search`)?.focus();
+  });
+}
+
+// 初始化 new + edit 两个实例
+initOwnerPickerEvents('new');
+initOwnerPickerEvents('edit');
+
+// 点击页面其他地方关闭所有 owner picker 下拉
+document.addEventListener('mousedown', (e) => {
+  ['new', 'edit'].forEach(pfx => {
+    const panel = $(`#key-owner-${pfx}-panel`);
+    if (!panel || panel.hidden) return;
+    if (e.target.closest(`#key-owner-${pfx}-picker`)) return;
+    closeOwnerPicker(pfx);
+  });
+});
+
+// ============== Tag Picker（多选 chip 风格，分组选择器视觉风格一致） ==============
+// 与后端 TAG_NAME_RE /api/keys/tags 一致：1~32 字符 [A-Za-z0-9_.\-]
+const TAG_PICKER_RE = /^[A-Za-z0-9_.\-]{1,32}$/;
+
+// allTagsTags 全局缓存：每次 loadKeys 时刷一次
+let allKeyTags = []; // [{ name, count }]
+
+function renderTagPickerChips(pfx, selected) {
+  const field = $(`#tag-picker-${pfx}-field`);
+  if (!field) return;
+  // 保留 input
+  const input = $(`#tag-picker-${pfx}-input`, field);
+  // 移除所有 chip + 占位符
+  $$('.tag-chip, .tag-picker-empty', field).forEach(el => el.remove());
+  if (!selected.length) {
+    const empty = document.createElement('span');
+    empty.className = 'tag-picker-empty';
+    empty.textContent = '（点击下方输入或从已有标签选择）';
+    field.insertBefore(empty, input);
+  } else {
+    for (const t of selected) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip';
+      chip.innerHTML = `${escapeHtml(t)}<button type="button" class="tag-chip-x" aria-label="移除">×</button>`;
+      chip.querySelector('.tag-chip-x').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cur = readTagPickerSelected(pfx);
+        const next = cur.filter(x => x !== t);
+        writeTagPickerSelected(pfx, next);
+        renderTagPickerChips(pfx, next);
+        renderTagPickerList(pfx);
+      });
+      field.insertBefore(chip, input);
+    }
+  }
+}
+
+function renderTagPickerList(pfx) {
+  const list = $(`#tag-picker-${pfx}-list`);
+  const input = $(`#tag-picker-${pfx}-input`);
+  if (!list) return;
+  const term = (input?.value || '').trim();
+  const selected = readTagPickerSelected(pfx);
+  const selSet = new Set(selected);
+  // 已有 tag 列表（已存在），过滤掉已选的、按搜索词过滤
+  const existing = (allKeyTags || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const items = [];
+  for (const t of existing) {
+    if (selSet.has(t.name)) continue; // 已选的不在下拉里展示
+    if (term && !t.name.toLowerCase().includes(term.toLowerCase())) continue;
+    items.push(`
+      <div class="group-picker-item" data-tag-pick="${escapeHtml(t.name)}" role="option">
+        <span class="group-picker-item-name">${escapeHtml(t.name)}</span>
+        <span class="group-picker-item-count">${t.count}</span>
+      </div>
+    `);
+  }
+  // 搜索词不空且不是已存在 tag → 提供"新建"
+  if (term) {
+    const valid = TAG_PICKER_RE.test(term);
+    if (valid && !selSet.has(term) && !existing.find(x => x.name.toLowerCase() === term.toLowerCase())) {
+      items.push(`
+        <div class="group-picker-item is-create" data-tag-pick="${escapeHtml(term)}" data-tag-new="1" role="option">
+          <span class="group-picker-item-name">✚ 新建标签「${escapeHtml(term)}」</span>
+        </div>
+      `);
+    }
+  }
+  if (!items.length) {
+    items.push(`<div class="group-picker-empty">${term ? '（无匹配标签，按 Enter 添加）' : '（还没有标签，输入名称回车创建）'}</div>`);
+  }
+  list.innerHTML = items.join('');
+  // 事件委托
+  list.onclick = (e) => {
+    const item = e.target.closest('[data-tag-pick]');
+    if (!item) return;
+    const v = item.dataset.tagPick;
+    if (TAG_PICKER_RE.test(v) && !readTagPickerSelected(pfx).includes(v)) {
+      const next = [...readTagPickerSelected(pfx), v];
+      writeTagPickerSelected(pfx, next);
+      renderTagPickerChips(pfx, next);
+      // 选完后清空搜索框，焦点回到 input
+      if (input) input.value = '';
+      renderTagPickerList(pfx);
+    }
+  };
+}
+
+function readTagPickerSelected(pfx) {
+  const hidden = $(`#tag-picker-${pfx}-hidden`);
+  if (!hidden) return [];
+  try {
+    const v = JSON.parse(hidden.value || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+function writeTagPickerSelected(pfx, arr) {
+  const hidden = $(`#tag-picker-${pfx}-hidden`);
+  if (hidden) hidden.value = JSON.stringify(arr);
+}
+
+function openTagPickerPanel(pfx) {
+  const panel = $(`#tag-picker-${pfx}-panel`);
+  if (panel) {
+    panel.hidden = false;
+    // 拉一次 tags 列表
+    if (!allKeyTags.length) {
+      api('/api/keys/tags').then(r => {
+        allKeyTags = r.items || [];
+        if (!panel.hidden) renderTagPickerList(pfx);
+      }).catch(() => { allKeyTags = []; });
+    }
+    renderTagPickerList(pfx);
+    // 浮层定位：fixed 定位避免被 modal-card 的 overflow:auto 裁切
+    const trigger = $(`#tag-picker-${pfx}-trigger`) || $(`#tag-picker-${pfx}-field`);
+    positionPickerPanel(panel, trigger);
+    setTimeout(() => $(`#tag-picker-${pfx}-input`)?.focus(), 10);
+  }
+}
+function closeTagPickerPanel(pfx) {
+  const panel = $(`#tag-picker-${pfx}-panel`);
+  if (!panel) return;
+  panel.hidden = true;
+  // 浮层关闭时清掉 fixed 定位的 inline 样式 + 类
+  panel.classList.remove('picker-floating');
+  panel.style.position = '';
+  panel.style.top = '';
+  panel.style.left = '';
+  panel.style.width = '';
+  panel.style.maxHeight = '';
+}
+
+/**
+ * 初始化 / 重新初始化 tag picker。
+ * 每次弹窗打开都调用一次（避免切换 key 时残留旧值）。
+ */
+function initTagPicker(pfx, initial = []) {
+  const input = $(`#tag-picker-${pfx}-input`);
+  const panel = $(`#tag-picker-${pfx}-panel`);
+  const field = $(`#tag-picker-${pfx}-field`);
+  if (!input || !panel || !field) return;
+  // 重置值
+  writeTagPickerSelected(pfx, initial.slice());
+  if (input.value) input.value = '';
+  renderTagPickerChips(pfx, initial);
+  // 关闭下拉（如果开着的）
+  panel.hidden = true;
+  // 拆掉旧的 input 事件监听：直接用 flag 即可（oninput 重新绑定）
+  input.oninput = () => {
+    if (panel.hidden) panel.hidden = false;
+    renderTagPickerList(pfx);
+  };
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const term = input.value.trim();
+      if (!term) return;
+      if (!TAG_PICKER_RE.test(term)) {
+        toast('tag 必须是 1~32 字符 [A-Za-z0-9_.-]', 'err');
+        return;
+      }
+      const cur = readTagPickerSelected(pfx);
+      if (cur.includes(term)) return; // 去重
+      const next = [...cur, term];
+      writeTagPickerSelected(pfx, next);
+      input.value = '';
+      renderTagPickerChips(pfx, next);
+      renderTagPickerList(pfx);
+    } else if (e.key === 'Backspace' && !input.value) {
+      // 空输入时按 Backspace 删最后一个 chip
+      const cur = readTagPickerSelected(pfx);
+      if (cur.length) {
+        const next = cur.slice(0, -1);
+        writeTagPickerSelected(pfx, next);
+        renderTagPickerChips(pfx, next);
+        renderTagPickerList(pfx);
+      }
+    } else if (e.key === 'Escape') {
+      // 阻止冒泡到外层 modal 关闭
+      if (!panel.hidden) { e.stopPropagation(); closeTagPickerPanel(pfx); }
+    }
+  };
+  // 点击 field 时聚焦 input
+  field.onclick = (e) => {
+    if (e.target.closest('.tag-chip')) return; // 点 chip 上的 × 不抢焦点
+    input.focus();
+  };
+  field.querySelector('.tag-picker-input')?.addEventListener('focus', () => {
+    if (panel.hidden) openTagPickerPanel(pfx);
+  });
+}
+
+// 全局：点击页面其他地方关闭所有 tag picker
+document.addEventListener('mousedown', (e) => {
+  ['new', 'edit'].forEach(pfx => {
+    const panel = $(`#tag-picker-${pfx}-panel`);
+    if (!panel || panel.hidden) return;
+    if (e.target.closest(`#tag-picker-${pfx}`)) return;
+    panel.hidden = true;
+  });
+});
+
 function renderGroupFilter() {
   const sel = $('#var-group-filter');
   if (!sel) return;
@@ -777,6 +1280,37 @@ function renderGroupFilter() {
   sel.innerHTML = '<option value="">全部分组</option>'
     + '<option value="__null__">（未分组）</option>'
     + (allGroups || []).map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)} (${g.count})</option>`).join('');
+  sel.value = cur;
+}
+
+function renderTagFilter() {
+  const sel = $('#key-tag-filter');
+  if (!sel) return;
+  // 多选模式：把当前值塞到 selected（逗号分隔）
+  const current = (keyTagFilter || '').split(',').map(s => s.trim()).filter(Boolean);
+  sel.innerHTML = '<option value="">全部 tag</option>'
+    + (allKeyTags || []).map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)} (${g.count})</option>`).join('');
+  // 选中当前
+  Array.from(sel.options).forEach(o => { o.selected = current.includes(o.value); });
+  // 保持 single 显示态：如果有多个，让首项显示为「多个」样式
+  if (current.length > 1) {
+    const first = sel.options[0];
+    first.text = `全部 tag（已选 ${current.length} 个）`;
+  } else {
+    sel.options[0].text = '全部 tag';
+  }
+}
+
+function renderOwnerFilter() {
+  const sel = $('#key-owner-filter');
+  if (!sel) return;
+  const cur = keyOwnerFilter;
+  sel.innerHTML = '<option value="">全部 owner</option>'
+    + (allKeyOwners || []).map(o => `<option value="${escapeHtml(o.name)}">${escapeHtml(o.name)} (${o.count})</option>`).join('');
+  // 如果当前 owner 不在列表里（可能是新建的），加一个特殊项
+  if (cur && !(allKeyOwners || []).find(o => o.name === cur)) {
+    sel.innerHTML += `<option value="${escapeHtml(cur)}">${escapeHtml(cur)}</option>`;
+  }
   sel.value = cur;
 }
 
@@ -789,26 +1323,26 @@ function renderVariables() {
     (v.description || '').toLowerCase().includes(term) ||
     (v.group || '').toLowerCase().includes(term));
   if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty">${allVariables.length ? '无匹配项' : '还没有变量，点右上角 <b>+ 新建变量</b> 开始添加。'}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty">${allVariables.length ? '无匹配项' : '还没有变量，点右上角 <b>+ 新建变量</b> 开始添加。'}</div></td></tr>`;
     return;
   }
   tbody.innerHTML = list.map((v, i) => {
     const groupCell = v.group
-      ? `<span class="badge ok" style="cursor:pointer;" data-act="var-view-group" data-group="${escapeHtml(v.group)}" title="查看该分组下全部变量">${escapeHtml(v.group)}</span>`
-      : '<span class="muted">-</span>';
+      ? `<span class="badge ok" data-act="var-view-group" data-group="${escapeHtml(v.group)}" title="查看该分组下全部变量">${escapeHtml(v.group)}</span>`
+      : '<span class="muted">—</span>';
+    const descShort = v.description && v.description.length > 60 ? v.description.slice(0, 60) + '…' : (v.description || '');
     return `
     <tr>
-      <td><b>${i + 1}</b></td>
-      <td><code>${escapeHtml(v.name)}</code></td>
-      <td><code class="muted-code">${escapeHtml(v.value.length > 40 ? v.value.slice(0, 40) + '…' : v.value)}</code></td>
-      <td>${groupCell}</td>
-      <td>${v.description ? escapeHtml(v.description) : '<span class="muted">-</span>'}</td>
-      <td>${fmtTime(v.updated_at)}</td>
-      <td>${fmtTime(v.created_at)}</td>
-      <td>
-        <button class="ghost primary-act" data-act="var-copy" data-name="${escapeHtml(v.name)}" data-value="${escapeHtml(v.value)}" title="复制 value">复制</button>
-        <button class="ghost" data-act="var-edit" data-id="${v.id}" data-name="${escapeHtml(v.name)}" data-value="${escapeHtml(v.value)}" data-desc="${escapeHtml(v.description || '')}" data-group="${escapeHtml(v.group || '')}">编辑</button>
-        <button class="ghost" data-act="var-del" data-id="${v.id}" data-name="${escapeHtml(v.name)}">删除</button>
+      <td data-label="#"><b>${i + 1}</b></td>
+      <td data-label="name"><div class="primary-name"><code>${escapeHtml(v.name)}</code></div></td>
+      <td data-label="value" class="truncate" title="${escapeHtml(v.value)}"><code class="muted-code">${escapeHtml(v.value.length > 60 ? v.value.slice(0, 60) + '…' : v.value)}</code></td>
+      <td data-label="分组">${groupCell}</td>
+      <td data-label="描述" class="truncate" title="${escapeHtml(v.description || '')}">${descShort ? escapeHtml(descShort) : '<span class="muted">—</span>'}</td>
+      <td data-label="更新时间" data-col="time">${fmtTime(v.updated_at)}</td>
+      <td data-label="操作" class="actions-cell">
+        <button class="ghost primary-act" data-act="var-copy" data-name="${escapeHtml(v.name)}" data-value="${escapeHtml(v.value)}" data-label="📋" title="复制 value"></button>
+        <button class="ghost" data-act="var-edit" data-id="${v.id}" data-name="${escapeHtml(v.name)}" data-value="${escapeHtml(v.value)}" data-desc="${escapeHtml(v.description || '')}" data-group="${escapeHtml(v.group || '')}" data-label="✎" title="编辑"></button>
+        <button class="ghost" data-act="var-del" data-id="${v.id}" data-name="${escapeHtml(v.name)}" data-label="🗑" title="删除"></button>
       </td>
     </tr>`;
   }).join('');
@@ -1018,7 +1552,7 @@ $('#vars-tbody')?.addEventListener('click', async (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   // 只关「最上层」的可见 modal（按 DOM 顺序的后者覆盖在前）
-  const visible = ['confirm-modal', 'reset-pw-modal', 'group-modal', 'main-key-modal', 'edit-key-modal', 'new-key-modal', 'new-account-modal']
+  const visible = ['confirm-modal', 'reset-pw-modal', 'group-modal', 'var-modal', 'main-key-modal', 'edit-key-modal', 'new-key-modal', 'new-account-modal']
     .map(id => document.getElementById(id))
     .filter(el => el && !el.hidden);
   if (visible.length) {
@@ -1026,6 +1560,10 @@ document.addEventListener('keydown', (e) => {
     // confirm-modal 由它自己的 onCancel 收拾；这里只 hide
     if (top.id === 'confirm-modal') {
       // appConfirm 自己注册的 onEsc 会 resolve；这里不重复处理
+      return;
+    }
+    if (top.id === 'var-modal') {
+      closeVarModal();
       return;
     }
     top.hidden = true;
@@ -1167,10 +1705,15 @@ function openEditKeyModal(item) {
   editingKeyId = item.id;
   const f = $('#edit-key-form');
   f.name.value = item.name || '';
-  f.owner.value = item.owner || '';
-  f.tags.value = (item.tags || []).join(', ');
+  // owner picker 用项的 owner 初始化
+  setOwnerPickerValue('edit', item.owner || '');
   f.expiresAt.value = item.expires_at ? item.expires_at.slice(0, 16) : '';
   f.meta.value = item.meta ? JSON.stringify(item.meta, null, 2) : '';
+  // tag picker 用项的 tags 初始化
+  initTagPicker('edit', item.tags || []);
+  // 拉一次 owner + tag 缓存
+  api('/api/keys/owners').then(r => { allKeyOwners = r.items || []; }).catch(() => { allKeyOwners = []; });
+  api('/api/keys/tags').then(r => { allKeyTags = r.items || []; }).catch(() => { allKeyTags = []; });
   // 归属账号：默认选中 item.ownerUserId
   const sel = f.ownerUserId;
   if (sel) {
@@ -1202,9 +1745,11 @@ $('#edit-key-form')?.addEventListener('submit', async (e) => {
   const body = {};
   body.name = f.name.value.trim();
   body.owner = f.owner.value.trim() || null;
-  const tags = f.tags.value
-    .split(/[,\s，、]+/g).map(s => s.trim()).filter(Boolean);
-  body.tags = tags;
+  // tags: 来自 tag-picker 的 hidden（JSON 数组）
+  try {
+    const arr = JSON.parse((f.tags.value || '[]').toString());
+    body.tags = Array.isArray(arr) ? arr.map(s => String(s).trim()).filter(Boolean) : [];
+  } catch (_) { body.tags = []; }
   body.expiresAt = f.expiresAt.value ? new Date(f.expiresAt.value).toISOString() : null;
   const metaRaw = f.meta.value.trim();
   if (metaRaw) {
@@ -1248,8 +1793,13 @@ async function loadAccounts() {
     const r = await api('/api/accounts');
     allAccounts = r.items || [];
     renderAccounts();
+    const cnt = $('#accounts-count');
+    if (cnt) {
+      const total = allAccounts.length;
+      cnt.textContent = total === 0 ? '（空）' : `共 ${total} 个`;
+    }
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty">加载失败：${escapeHtml(e.message)}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty">加载失败：${escapeHtml(e.message)}</div></td></tr>`;
   }
 }
 
@@ -1258,47 +1808,46 @@ function renderAccounts() {
   if (!tbody) return;
   const isAdmin = currentUser && currentUser.role === 'admin';
   if (!allAccounts.length) {
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty">还没有账号。</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty">还没有账号。</div></td></tr>`;
     return;
   }
   tbody.innerHTML = allAccounts.map((a, i) => {
     const mk = a.mainKey;
     const mkBadge = !mk
-      ? '<span class="muted">—</span>'
-      : `<code>${escapeHtml(mk.prefix)}…</code><br><span class="muted" style="font-size:11px;">#${mk.id} · ${mk.enabled ? '启用' : '停用'}</span>`;
+      ? '<span class="badge warn" title="点击「🔑 查看」自动补建">未配置</span>'
+      : `<code>${escapeHtml(mk.prefix)}…</code> <span class="muted" style="font-size:11px;">#${mk.id} · ${mk.enabled ? '启用' : '停用'}</span>`;
     const isSelf = currentUser && currentUser.id === a.id;
     const isAdminRow = a.role === 'admin';
     const isMainAdmin = isAdminRow && a.id === (window.__mainAdminId || 0);
     // 主 admin / 自己：禁删
     const delBtnDisabled = isMainAdmin || isSelf;
     const delBtnTitle = isMainAdmin
-      ? '主 admin 不可删除（系统的「超级钥匙」账号）'
-      : (isSelf ? '不能删除自己' : '软删该账号（主 Key + 所有普通 key 一起软删，强制下线）');
+      ? '主 admin 不可删除'
+      : (isSelf ? '不能删除自己' : '软删该账号');
     // 重置密码：不能改自己；停用账号不允许
     const resetPwDisabled = isSelf || a.disabled;
     const resetPwTitle = isSelf
-      ? '不能重置自己的密码（当前会话会被撤销）'
-      : (a.disabled ? '账号已停用，请先启用' : '生成新密码，并撤销该账号的所有 session');
+      ? '不能重置自己的密码'
+      : (a.disabled ? '账号已停用，请先启用' : '重置密码');
     return `
     <tr ${a.deleted ? 'style="opacity:.5;"' : ''}>
-      <td><b>${i + 1}</b></td>
-      <td>
-        <b>${escapeHtml(a.username)}</b>${isSelf ? ' <span class="muted">（我）</span>' : ''}
-        ${a.displayName ? `<br><span class="muted" style="font-size:12px;">${escapeHtml(a.displayName)}</span>` : ''}
-        ${isAdminRow ? '<br><span class="badge ok" style="font-size:10px;">admin' + (isMainAdmin ? ' · 主' : '') + '</span>' : ''}
-        ${a.deleted ? '<br><span class="badge fail" style="font-size:10px;">已软删</span>' : ''}
+      <td data-label="#"><b>${i + 1}</b></td>
+      <td data-label="账号">
+        <div class="primary-name">${escapeHtml(a.username)}${isSelf ? ' <span class="muted">（我）</span>' : ''}</div>
+        ${a.displayName ? `<div class="secondary">${escapeHtml(a.displayName)}</div>` : ''}
+        ${isAdminRow ? '<span class="badge ok" style="font-size:10px;">admin' + (isMainAdmin ? ' · 主' : '') + '</span>' : ''}
+        ${a.deleted ? '<span class="badge fail" style="font-size:10px;">已软删</span>' : ''}
       </td>
-      <td>${escapeHtml(a.role)}</td>
-      <td>${a.disabled ? '<span class="badge fail">已停用</span>' : '<span class="badge ok">正常</span>'}</td>
-      <td>${mkBadge}</td>
-      <td>${mk ? fmtTime(mk.createdAt) : '<span class="muted">—</span>'}</td>
-      <td>${mk && mk.lastUsedAt ? fmtTime(mk.lastUsedAt) : '<span class="muted">—</span>'}</td>
-      <td>${fmtTime(a.createdAt)}</td>
-      <td>
-        <button class="ghost primary-act" data-act="acct-view-key" data-id="${a.id}" title="从数据库取主 Key 明文">查看主 Key</button>
-        <button class="ghost" data-act="acct-reroll" data-id="${a.id}" data-name="${escapeHtml(a.username)}" title="刷新：生成新主 Key，旧立即失效">刷新主 Key</button>
-        <button class="ghost" data-act="acct-reset-pw" data-id="${a.id}" data-name="${escapeHtml(a.username)}" data-self="${isSelf ? 1 : 0}" data-disabled="${a.disabled ? 1 : 0}" title="${escapeHtml(resetPwTitle)}" ${resetPwDisabled ? 'disabled' : ''} style="${resetPwDisabled ? 'opacity:.4;cursor:not-allowed;' : ''}">重置密码</button>
-        <button class="ghost danger" data-act="acct-delete" data-id="${a.id}" data-name="${escapeHtml(a.username)}" data-self="${isSelf ? 1 : 0}" data-main="${isMainAdmin ? 1 : 0}" title="${escapeHtml(delBtnTitle)}" ${delBtnDisabled ? 'disabled' : ''} style="${delBtnDisabled ? 'opacity:.4;cursor:not-allowed;' : ''}">删除</button>
+      <td data-label="角色" data-col="role">${escapeHtml(a.role)}</td>
+      <td data-label="状态" data-col="status">${a.disabled ? '<span class="badge fail">停</span>' : '<span class="badge ok">正常</span>'}</td>
+      <td data-label="主 Key">${mkBadge}</td>
+      <td data-label="主 Key 最近使用" data-col="time">${mk && mk.lastUsedAt ? fmtTime(mk.lastUsedAt) : '<span class="muted">—</span>'}</td>
+      <td data-label="账号创建" data-col="time">${fmtTime(a.createdAt)}</td>
+      <td data-label="操作" class="actions-cell">
+        <button class="ghost primary-act" data-act="acct-view-key" data-id="${a.id}" data-label="🔑" title="查看主 Key"></button>
+        <button class="ghost" data-act="acct-reroll" data-id="${a.id}" data-name="${escapeHtml(a.username)}" data-label="⟳" title="刷新主 Key"></button>
+        <button class="ghost" data-act="acct-reset-pw" data-id="${a.id}" data-name="${escapeHtml(a.username)}" data-self="${isSelf ? 1 : 0}" data-disabled="${a.disabled ? 1 : 0}" data-label="🔒" title="${escapeHtml(resetPwTitle)}" ${resetPwDisabled ? 'disabled' : ''}></button>
+        <button class="ghost danger" data-act="acct-delete" data-id="${a.id}" data-name="${escapeHtml(a.username)}" data-self="${isSelf ? 1 : 0}" data-main="${isMainAdmin ? 1 : 0}" data-label="🗑" title="${escapeHtml(delBtnTitle)}" ${delBtnDisabled ? 'disabled' : ''}></button>
       </td>
     </tr>`;
   }).join('');
@@ -1364,16 +1913,16 @@ $('#accounts-tbody')?.addEventListener('click', async (e) => {
     try {
       const r = await api(`/api/accounts/${id}/main-key/reroll`, { method: 'POST' });
       endBusy(); // 先恢复按钮
-      toast('已生成新主 Key，请立即复制保存', 'ok');
+      toast(r.autoCreated ? '该账号原本未配置主 Key，已自动补建' : '已生成新主 Key，请立即复制保存', r.autoCreated ? 'warn' : 'ok');
       openMainKeyModal({
         accountId: r.accountId,
         username: r.username,
         keyId: r.keyId,
         prefix: r.prefix,
         currentPlain: r.key,
-        originalPlain: r.key,
-        isOriginal: true,
-        isReroll: true,
+        isReroll: !r.autoCreated,   // 自动补建时不算「刷新」
+        autoCreated: r.autoCreated,
+        warning: r.warning,
       });
       loadAccounts();
     } catch (e) {
@@ -1439,21 +1988,22 @@ $('#accounts-tbody')?.addEventListener('click', async (e) => {
 });
 
 function openMainKeyModal(r) {
-  $('#main-key-modal-title').textContent = (r.isReroll ? '已刷新主 Key · ' : '账号主 Key · ') + r.username;
+  const wasAutoCreated = !!r.autoCreated;
+  $('#main-key-modal-title').textContent = (r.isReroll ? '已刷新主 Key · ' : (wasAutoCreated ? '已自动补建主 Key · ' : '账号主 Key · ')) + r.username;
   $('#main-key-modal-sub').innerHTML = r.isReroll
     ? '<span style="color:var(--warn);">旧主 Key 已立即失效，新主 Key 仅在此刻显示，请立即复制保存！</span>'
-    : '主 Key 是该账号的「凭证钥匙」。admin 账号的主 Key 在 verify 时跨账号通杀。';
-  $('#main-key-modal-hint').textContent = r.isReroll
-    ? '旧主 Key 立即失效，所有正在使用该 Key 的业务服务将立即 401。'
-    : '主 Key 是该账号的「凭证钥匙」。';
-  $('#main-key-plain').textContent = r.currentPlain;
-  if (r.originalPlain && r.originalPlain !== r.currentPlain) {
-    $('#main-key-original').textContent = r.originalPlain;
-    $('#main-key-original-row').hidden = false;
-  } else {
-    $('#main-key-original-row').hidden = true;
-  }
-  $('#main-key-modal').dataset.plain = r.currentPlain;
+    : wasAutoCreated
+      ? '<span style="color:var(--warn);">检测到该账号未配置主 Key，已自动补建。明文仅此刻显示，请立即复制保存！</span>'
+      : '主 Key 是该账号的「凭证钥匙」。admin 账号的主 Key 在 verify 时跨账号通杀。';
+  $('#main-key-modal-hint').textContent = r.warning
+    || (r.isReroll
+      ? '旧主 Key 立即失效，所有正在使用该 Key 的业务服务将立即 401。'
+      : '主 Key 是该账号的「凭证钥匙」。');
+  $('#main-key-plain').textContent = r.currentPlain || r.key || '';
+  // 注：不再展示「原 key」。重置后原 key 即视为失效，用户场景下没必要保留。
+  const origRow = $('#main-key-original-row');
+  if (origRow) origRow.hidden = true;
+  $('#main-key-modal').dataset.plain = r.currentPlain || r.key || '';
   $('#main-key-modal').hidden = false;
 }
 function closeMainKeyModal() { $('#main-key-modal').hidden = true; }
@@ -1527,8 +2077,6 @@ $('#new-account-form')?.addEventListener('submit', async (e) => {
         keyId: r.mainKey.id,
         prefix: r.mainKey.prefix,
         currentPlain: r.mainKey.plain,
-        originalPlain: r.mainKey.plain,
-        isOriginal: true,
         isReroll: false,
       });
     }
