@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
 const db = require('./db');
 const { encrypt, decrypt } = require('./crypto');
 
@@ -20,7 +19,6 @@ function generateKey({ name, meta, expiresAt, prefix = 'sk_live', owner, tags, o
   const plain = `${prefix}_${keyTag}_${random}`;
   const keyPrefix = plain.slice(0, 12);
   const hash = crypto.createHash('sha256').update(plain).digest('hex');
-  const bcryptHash = bcrypt.hashSync(plain, 8);
 
   // 加密存储（DB 泄露也不出明文）
   const encOriginal = encrypt(plain);
@@ -38,7 +36,6 @@ function generateKey({ name, meta, expiresAt, prefix = 'sk_live', owner, tags, o
     name,
     prefix: keyPrefix,
     plain,
-    bcryptHash,
     meta: meta || null,
     expiresAt: expiresAt || null,
     owner: owner || null,
@@ -46,16 +43,6 @@ function generateKey({ name, meta, expiresAt, prefix = 'sk_live', owner, tags, o
     isDefault: !!isDefault,
     tags: Array.isArray(tags) ? tags : [],
   };
-}
-
-function maskKey(plain) {
-  if (!plain) return '';
-  if (plain.length <= 12) return plain;
-  return plain.slice(0, 8) + '…' + plain.slice(-4);
-}
-
-function maskFromPrefix(prefix, lastFour) {
-  return `${prefix}…${lastFour || '****'}`;
 }
 
 /**
@@ -129,4 +116,4 @@ function readPlain(row) {
   return { currentPlain: cur, originalPlain: orig };
 }
 
-module.exports = { generateKey, importKey, rerollKey, maskKey, maskFromPrefix, readPlain };
+module.exports = { generateKey, importKey, rerollKey, readPlain };

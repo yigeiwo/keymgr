@@ -7,14 +7,14 @@
  *       所以对存量数据要做一次"解密→加密"迁移
  */
 const crypto = require('crypto');
+const config = require('./config');
 
 const ALGO = 'aes-256-gcm';
 const IV_LEN = 12;
 const TAG_LEN = 16;
 
 function getKey() {
-  const secret = process.env.SESSION_SECRET || 'keymgr-default-secret-change-me';
-  return crypto.createHash('sha256').update(secret).digest();
+  return crypto.createHash('sha256').update(config.sessionSecret).digest();
 }
 
 function encrypt(plaintext) {

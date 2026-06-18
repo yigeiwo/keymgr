@@ -7,24 +7,48 @@
   <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">KeyMgr</div>
-    <nav>
-      <a href="#" data-tab="keys" class="active">Keys</a>
-      <a href="#" data-tab="accounts">账号管理</a>
-      <a href="#" data-tab="variables">变量库</a>
-      <a href="#" data-tab="logs">验证日志</a>
-      <a href="#" data-tab="docs">API 文档</a>
-    </nav>
-    <div class="user">
-      <button id="theme-toggle" class="ghost" title="切换暗色主题" aria-label="切换主题">
-        <span class="theme-icon">🌙</span>
-      </button>
-      <span id="me"></span>
-      <button id="btn-change-pw" class="ghost" title="修改我的密码">🔑 改密</button>
-      <button id="logout">退出</button>
-    </div>
-  </header>
+  <!-- Sidebar overlay (mobile) -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="sidebar-brand-icon">K</div>
+        <span class="sidebar-brand-text">KeyMgr</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" data-tab="keys" class="active"><span class="nav-icon" data-i="nav_keys"></span>Keys</a>
+        <a href="#" data-tab="accounts"><span class="nav-icon" data-i="nav_users"></span>账号管理</a>
+        <a href="#" data-tab="variables"><span class="nav-icon" data-i="nav_vars"></span>变量管理</a>
+        <a href="#" data-tab="logs"><span class="nav-icon" data-i="nav_logs"></span>验证日志</a>
+        <a href="#" data-tab="docs"><span class="nav-icon" data-i="nav_docs"></span>API 文档</a>
+        <a href="#" data-tab="handover" id="nav-handover" style="display:none;"><span class="nav-icon" data-i="nav_handover"></span>交接</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="sidebar-user-avatar" id="me-avatar">A</div>
+          <span id="me"></span>
+        </div>
+        <div class="sidebar-actions">
+          <button id="theme-toggle" title="切换暗色主题" aria-label="切换主题">
+            <span class="theme-icon"></span> 主题
+          </button>
+          <button id="btn-change-pw" title="修改我的密码"><span data-i="lock"></span> 改密</button>
+          <button id="logout">退出</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main area -->
+    <div class="main-area">
+      <!-- Topbar (context bar) -->
+      <header class="topbar">
+        <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="打开菜单">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="topbar-title" id="topbar-title">Keys</div>
+      </header>
 
   <main>
     <!-- Keys -->
@@ -33,17 +57,20 @@
         <div class="toolbar-row toolbar-row--primary">
           <div class="toolbar-title">
             <h2>Keys</h2>
-            <span class="count" id="keys-count">—</span>
+            <span class="count" id="keys-count">0</span>
           </div>
           <div class="toolbar-primary">
             <button id="btn-new-key">+ 新建 Key</button>
           </div>
         </div>
         <div class="toolbar-row toolbar-row--filters">
-          <input type="search" id="key-search" placeholder="🔍 搜索 name / 前缀 / owner…" />
-          <select id="key-tag-filter" title="按 tag 过滤（多选 = OR）">
-            <option value="">全部 tag</option>
-          </select>
+          <div class="search-input">
+            <span class="search-input-icon" data-i="search"></span>
+            <input type="search" id="key-search" placeholder="搜索 name / 前缀 / owner" />
+          </div>
+            <select id="key-tag-filter" title="按 tag 过滤">
+              <option value="">全部 tag</option>
+            </select>
           <select id="key-owner-filter" title="按 owner 过滤">
             <option value="">全部 owner</option>
           </select>
@@ -51,12 +78,14 @@
             <option value="">全部账号</option>
           </select>
           <label class="check"><input type="checkbox" id="key-show-deleted"> 含已删（30 天内可恢复）</label>
-          <button class="toolbar-extra-toggle" id="key-help-toggle" type="button">说明 ▾</button>
+          <button class="toolbar-extra-toggle" id="key-clear-filters" type="button" title="清除所有筛选条件"><span data-i="close"></span> 清除筛选</button>
+          <button class="toolbar-extra-toggle" id="key-help-toggle" type="button">说明 <span data-i="chevron_down"></span></button>
         </div>
         <div class="toolbar-extra" id="key-help">
-          💡 主 Key 在「账号管理」页 · 明文持久存于数据库（仅本机访问）· <b>复制</b> = 复制当前有效 key；<b>重置</b> = 生成新 key（旧 key 立即失效）。点击表格里的 <code>tag</code> / <code>owner</code> 可直接过滤。
+          💡 单个 Key 在「账号管理」页 · 明文持久存于数据库（仅本机访问）· <b>复制</b> = 复制当前有效 key；<b>重置</b> = 生成新 key（旧 key 立即失效）。点击表格里的 <code>tag</code> / <code>owner</code> 可直接过滤。
         </div>
       </div>
+      <div class="grid-wrap">
       <table class="grid">
         <thead>
           <tr>
@@ -65,16 +94,17 @@
             <th data-col="prefix" style="width:90px;">前缀</th>
             <th style="width:84px;">账号</th>
             <th style="width:100px;">owner</th>
-            <th class="tags-cell">tags</th>
+            <th class="tags-cell" style="width:160px;">tags</th>
             <th style="width:64px;">状态</th>
-            <th data-col="time" style="width:120px;">过期</th>
-            <th data-col="time" style="width:120px;">最近使用</th>
-            <th data-col="time" style="width:120px;">创建时间</th>
-            <th style="width:156px;">操作</th>
+            <th data-col="time" style="width:110px;">过期</th>
+            <th data-col="time" style="width:110px;">最近使用</th>
+            <th data-col="time" style="width:110px;">创建时间</th>
+            <th style="width:230px;">操作</th>
           </tr>
         </thead>
         <tbody id="keys-tbody"></tbody>
       </table>
+      </div>
     </section>
 
     <!-- Accounts -->
@@ -83,7 +113,7 @@
         <div class="toolbar-row toolbar-row--primary">
           <div class="toolbar-title">
             <h2>账号管理</h2>
-            <span class="count" id="accounts-count">—</span>
+            <span class="count" id="accounts-count">0</span>
           </div>
           <div class="toolbar-primary">
             <button id="btn-new-account">+ 新建子账号</button>
@@ -91,6 +121,7 @@
         </div>
         <div class="toolbar-hint">每个账号固定 1 个「主 Key」，可在右侧查看明文 / 刷新。admin 账号的主 Key 是「超级钥匙」，verify 时跨账号通杀。</div>
       </div>
+      <div class="grid-wrap">
       <table class="grid">
         <thead>
           <tr>
@@ -98,14 +129,15 @@
             <th>账号</th>
             <th data-col="role" style="width:80px;">角色</th>
             <th data-col="status" style="width:64px;">状态</th>
-            <th>主 Key</th>
+            <th style="width:180px;">主 Key</th>
             <th data-col="time" style="width:130px;">主 Key 最近使用</th>
             <th data-col="time" style="width:130px;">账号创建</th>
-            <th style="width:148px;">操作</th>
+            <th style="width:180px;">操作</th>
           </tr>
         </thead>
         <tbody id="accounts-tbody"></tbody>
       </table>
+      </div>
     </section>
 
     <!-- Variables -->
@@ -113,36 +145,43 @@
       <div class="toolbar">
         <div class="toolbar-row toolbar-row--primary">
           <div class="toolbar-title">
-            <h2>变量库</h2>
-            <span class="count" id="vars-count">—</span>
+            <h2>变量管理</h2>
+            <span class="count" id="vars-count">0</span>
           </div>
           <div class="toolbar-primary">
             <button id="btn-new-var">+ 新建变量</button>
+            <button id="btn-var-heat" class="secondary" title="变量调用频率统计"><span data-i="flame"></span> 热度</button>
           </div>
         </div>
         <div class="toolbar-row toolbar-row--filters">
-          <input type="search" id="var-search" placeholder="🔍 搜索 name…" />
+          <div class="search-input">
+            <span class="search-input-icon" data-i="search"></span>
+            <input type="search" id="var-search" placeholder="搜索 name" />
+          </div>
           <select id="var-group-filter" title="按分组过滤">
             <option value="">全部分组</option>
             <option value="__null__">（未分组）</option>
           </select>
+          <button class="toolbar-extra-toggle" id="var-clear-filters" type="button" title="清除所有筛选条件"><span data-i="close"></span> 清除筛选</button>
           <span class="toolbar-hint">同一分组可批量调用（POST /v1/variables/group）</span>
         </div>
       </div>
+      <div class="grid-wrap">
       <table class="grid">
         <thead>
           <tr>
             <th style="width:44px;">#</th>
-            <th>name</th>
+            <th style="width:140px;">name</th>
             <th>value</th>
-            <th style="width:120px;">分组</th>
+            <th style="width:110px;">分组</th>
             <th>描述</th>
-            <th style="width:130px;">更新时间</th>
-            <th style="width:170px;">操作</th>
+            <th style="width:120px;">更新时间</th>
+            <th style="width:150px;">操作</th>
           </tr>
         </thead>
         <tbody id="vars-tbody"></tbody>
       </table>
+      </div>
     </section>
 
     <!-- Logs -->
@@ -151,33 +190,106 @@
         <div class="toolbar-row toolbar-row--primary">
           <div class="toolbar-title">
             <h2>验证日志</h2>
-            <span class="count" id="logs-count">—</span>
+            <span class="count" id="logs-count">0</span>
           </div>
           <div class="toolbar-primary">
             <select id="log-filter" title="按结果过滤">
               <option value="">全部</option>
-              <option value="ok">✓ ok</option>
-              <option value="fail">✗ fail</option>
+              <option value="ok">仅 ok</option>
+              <option value="fail">仅 fail</option>
             </select>
-            <button class="secondary" id="btn-clear-logs" title="清理过期日志">清理</button>
+            <span class="status-pill" id="btn-clear-logs" title="日志按保留天数自动清理"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>自动清理</span>
           </div>
         </div>
         <div class="toolbar-hint">只保留最近 30 天（可调 LOG_RETENTION_DAYS）。</div>
       </div>
+
+      <!-- 统计面板（调用 GET /api/logs/stats） -->
+      <div class="stats-panel" id="logs-stats-panel" hidden>
+        <div class="stats-panel-head">
+          <h3>验证统计</h3>
+          <div class="stats-range">
+            <span>范围：</span>
+            <select id="stats-days" title="统计窗口">
+              <option value="1">1 天</option>
+              <option value="7" selected>7 天</option>
+              <option value="14">14 天</option>
+              <option value="30">30 天</option>
+              <option value="90">90 天</option>
+            </select>
+            <button class="ghost" id="btn-refresh-stats" title="刷新统计"><span data-i="refresh"></span></button>
+          </div>
+        </div>
+
+        <!-- 概览卡 -->
+        <div class="stats-overview">
+          <div class="stat-card">
+            <span class="stat-label">总调用</span>
+            <strong class="stat-value" id="stat-total">0</strong>
+            <span class="stat-sub" id="stat-range-sub"></span>
+          </div>
+          <div class="stat-card stat-ok">
+            <span class="stat-label">成功</span>
+            <strong class="stat-value" id="stat-ok">0</strong>
+            <span class="stat-sub" id="stat-ok-sub"></span>
+          </div>
+          <div class="stat-card stat-fail">
+            <span class="stat-label">失败</span>
+            <strong class="stat-value" id="stat-fail">0</strong>
+            <span class="stat-sub" id="stat-fail-sub"></span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">成功率</span>
+            <strong class="stat-value" id="stat-rate">0%</strong>
+            <span class="stat-sub" id="stat-rate-sub"></span>
+          </div>
+        </div>
+
+        <!-- 每日趋势 + 失败原因 -->
+        <div class="stats-grid">
+          <div class="stats-block">
+            <h4>每日趋势</h4>
+            <div class="stats-chart" id="stats-chart"></div>
+            <div class="stats-legend">
+              <span><i class="dot dot-ok"></i>成功</span>
+              <span><i class="dot dot-fail"></i>失败</span>
+            </div>
+          </div>
+          <div class="stats-block">
+            <h4>失败原因 Top</h4>
+            <ul class="stats-reasons" id="stats-reasons"></ul>
+          </div>
+        </div>
+
+        <!-- 最活跃 Key / 来源 IP -->
+        <div class="stats-grid">
+          <div class="stats-block">
+            <h4>最活跃 Key Top 5</h4>
+            <ul class="stats-list" id="stats-top-keys"></ul>
+          </div>
+          <div class="stats-block">
+            <h4>调用来源 IP Top 5</h4>
+            <ul class="stats-list" id="stats-top-ips"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-wrap">
       <table class="grid">
         <thead>
           <tr>
-            <th style="width:140px;">时间</th>
+            <th style="width:130px;">时间</th>
             <th style="width:60px;">结果</th>
-            <th>原因</th>
-            <th data-col="prefix" style="width:140px;">前缀</th>
-            <th data-col="ip" style="width:120px;">IP</th>
+            <th style="width:140px;">原因</th>
+            <th data-col="prefix" style="width:130px;">前缀</th>
+            <th data-col="ip" style="width:110px;">IP</th>
             <th>UA</th>
             <th style="width:80px;" class="num">耗时(ms)</th>
           </tr>
         </thead>
         <tbody id="logs-tbody"></tbody>
       </table>
+      </div>
     </section>
 
     <!-- Docs -->
@@ -187,7 +299,7 @@
           <div class="doc-hero-text">
             <span class="eyebrow">API Reference</span>
             <h2>KeyMgr 接口文档</h2>
-            <p>两类接口：<b>对外验证</b> <code class="inline">POST /v1/verify</code>（业务服务调用）；<b>后台管理</b> <code class="inline">/api/*</code>（需登录）。</p>
+            <p>两类接口：<b>对外验证</b> <code class="inline">POST /v1/verify</code>（业务服务调用） · <b>后台管理</b> <code class="inline">/api/*</code>（需登录）。</p>
           </div>
           <div class="doc-hero-meta">
             <div><span>Base</span><code>http://your-host:3000</code></div>
@@ -210,7 +322,7 @@
             <button data-pane="sm">系统 & 监控</button>
           </div>
 
-          <!-- ① 对外验证 -->
+          <!-- §1 对外验证 -->
           <div data-pane="v" class="doc-pane">
             <article class="doc-card">
               <h3>POST /v1/verify</h3>
@@ -241,7 +353,7 @@ x-api-key: sk_live_xxxxxx_xxxxxxxxxxxx</pre>
   "account":      "admin",          // 解析出的目标账号 username
   "ownerUserId":  1,                // 该 key 的归属用户 id
   "isDefault":    false,            // 是否为「主 Key」
-  "superKey":     false,            // 是否命中了 admin 主 Key 的「通杀」逻辑
+  "superKey":     false,            // 是否命中 admin 主 Key 的「通杀」逻辑
   "meta":         { "owner": "team-a" }
 }</pre>
             </article>
@@ -295,7 +407,7 @@ func Verify(next http.Handler) http.Handler {
       "application/json", bytes.NewReader(body))
     defer resp.Body.Close()
     var out struct{ Valid bool `json:"valid"` }
-    json.NewDecoder(resp.Body).Decode(&amp;out)
+    json.NewDecoder(resp.Body).Decode(&out)
     if !out.Valid { http.Error(w, "unauthorized", 401); return }
     next.ServeHTTP(w, r)
   })
@@ -304,7 +416,7 @@ func Verify(next http.Handler) http.Handler {
             </article>
           </div>
 
-          <!-- ①.5 对外变量 API -->
+          <!-- §5 对外变量 API -->
           <div data-pane="va" class="doc-pane" hidden>
             <article class="doc-card">
               <h3>POST /v1/variables/get</h3>
@@ -386,7 +498,7 @@ var out struct{
   Value string `json:"value"`
   Code string `json:"code"`
 }
-json.NewDecoder(resp.Body).Decode(&amp;out)
+json.NewDecoder(resp.Body).Decode(&out)
 if !out.Ok { log.Fatal("config: ", out.Code) }
 dbURL := out.Value</pre>
               </div>
@@ -446,7 +558,7 @@ Content-Type: application/json
     { "name": "DB_URL",  "value": "postgres://...", "description": "主库" },
     { "name": "DB_REPL", "value": "postgres://...", "description": "从库" }
   ],
-  "forbidden": []                 // 受 meta.scopes 过滤掉的变量名
+  "forbidden": []                 // 受 meta.scopes 过滤掉的变量
 }
 → 400 MISSING_GROUP / INVALID_GROUP
 → 200 GROUP_NOT_FOUND              // 该分组不存在或为空</pre>
@@ -455,17 +567,17 @@ Content-Type: application/json
               <h3>行为说明</h3>
               <ul class="doc-list">
                 <li><b>鉴权</b>：必须先通过 Key 验证（status 有效、未停用、未过期、且 key 不属于已软删账号），否则返回对应 <code class="inline">code</code>。</li>
-                <li><b>name 格式</b>：2~64 字符，<code class="inline">[A-Za-z0-9_.-]</code>，建议大写 + 下划线（如 <code class="inline">DB_URL</code>、<code class="inline">API_BASE</code>）。</li>
+                <li><b>name 格式</b>：2~64 字符 <code class="inline">[A-Za-z0-9_.-]</code>，建议大写+下划线（如 <code class="inline">DB_URL</code>、<code class="inline">API_BASE</code>）。</li>
                 <li><b>value 限制</b>：字符串，≤ 8192 字符（足够存连接串、JSON 序列化配置等）。</li>
-                <li><b>限流</b>：1200 次/分钟/IP，<code class="inline">/v1/verify</code> 限流独立（600/min）。</li>
+                <li><b>限流</b>：1200 / 分钟/IP（<code class="inline">/v1/verify</code> 限流独立 600/min）。</li>
                 <li><b>不记录 value</b>：日志只记 name / key prefix，不记 value，避免日志泄露。</li>
-                <li><b>scope 访问控制</b>：Key 的 <code class="inline">meta.scopes</code> 字段（数组）可限制该 Key 能读哪些变量。<code class="inline">["*"]</code> = 不限；<code class="inline">["DB_URL","FEATURE_X"]</code> = 仅能读这些；空数组 = 一个都读不了。被限制的变量在 <code class="inline">/multi</code> / <code class="inline">/group</code> 响应中出现在 <code class="inline">forbidden</code> 字段，<code class="inline">/get</code> 单独访问时返回 <code class="inline">SCOPE_FORBIDDEN</code>。</li>
+                <li><b>scope 访问控制</b>：Key 的 <code class="inline">meta.scopes</code> 字段（数组）可限制该 Key 能读哪些变量。<code class="inline">["*"]</code> = 不限；<code class="inline">["DB_URL","FEATURE_X"]</code> = 仅能读这些；空数组 = 一个都读不了。被限制的变量在 <code class="inline">/multi</code> / <code class="inline">/group</code> 响应中出现在 <code class="inline">forbidden</code> 字段；<code class="inline">/get</code> 单独访问时返回 <code class="inline">SCOPE_FORBIDDEN</code>。</li>
                 <li><b>主 Key 通杀</b>：账号主 Key（<code class="inline">isDefault=1</code>）不受 scope 限制；admin 的主 Key 还可代任意账号身份调用（<code class="inline">superKey=true</code>）。</li>
               </ul>
             </article>
           </div>
 
-          <!-- ② 认证 & 用户 -->
+          <!-- §6 认证 & 用户 -->
           <div data-pane="a" class="doc-pane" hidden>
             <article class="doc-card">
               <h3>POST /api/auth/login</h3>
@@ -478,7 +590,7 @@ Content-Type: application/json
 → 401 { "ok":false, "code":"INVALID_CREDENTIALS", "error":"用户名或密码错误", "fails":3, "remaining":2 }
 → 429 { "ok":false, "code":"TOO_MANY_LOGIN_FAILURES", "error":"失败次数过多，已被临时锁定 15 分钟", "retryAfterMs":900000 }
 
-// 10 分钟内连续 5 次失败 → 锁 15 分钟（IP 维度）</pre>
+// 10 分钟内连续 5 次失败 → 锁定 15 分钟（IP 维度）</pre>
             </article>
             <article class="doc-card">
               <h3>POST /api/auth/logout</h3>
@@ -490,7 +602,7 @@ Cookie: km_sid=...
             </article>
             <article class="doc-card">
               <h3>POST /api/auth/change-password</h3>
-              <p class="muted">改自己的密码（需先输旧密码）。改完后会撤销该用户的所有 session，<b>当前会话保留</b>。</p>
+              <p class="muted">改自己的密码（需先输旧密码）。改完后会撤销该用户的所有 session（<b>当前会话保留</b>）。</p>
               <pre>POST /api/auth/change-password
 Cookie: km_sid=...
 { "currentPassword": "old-pwd", "newPassword": "new-pwd-123" }
@@ -512,10 +624,10 @@ Cookie: km_sid=...
             <article class="doc-card">
               <h3>用户管理（仅 admin）</h3>
               <p class="muted">增删改查账号。同一份能力也通过 <code class="inline">/api/accounts</code> 暴露（带主 Key 摘要），任选其一即可。</p>
-              <pre>GET    /api/users                       // 列表（不含已软删；?includeDeleted=1 包含）
+              <pre>GET    /api/users                       // 列表（不含已软删；includeDeleted=1 包含）
 POST   /api/users                       // 创建（自动生成主 Key，明文仅返回一次）
 PATCH  /api/users/:id                   // 改 role / displayName / password / disabled
-DELETE /api/users/:id                   // 软删（含其所有 key + 撤销其 session）
+DELETE /api/users/:id                   // 软删（含其所有 key + 撤销 session）
 GET    /api/users/me/info               // 当前用户
 
 // 创建示例
@@ -530,7 +642,7 @@ POST /api/users
 → 409 NAME_TAKEN
 
 // 防止「最后一个 admin 被降级 / 禁用 / 删除」：
-//   业务侧在调 PATCH/DELETE 前先 GET /api/users 看 admin 数量。</pre>
+//   业务侧在 PATCH/DELETE 前先 GET /api/users 查 admin 数量</pre>
             </article>
             <article class="doc-card">
               <h3>账号管理（仅 admin，含主 Key）</h3>
@@ -541,9 +653,7 @@ GET    /api/accounts/:id/main-key         // 拿主 Key 明文（不可恢复）
 POST   /api/accounts/:id/main-key/reroll  // 刷新主 Key（旧立即失效）
 POST   /api/accounts/:id/reset-password   // 重置登录密码（16 字符随机）
 DELETE /api/accounts/:id                  // 软删（含主 Key + 所有 key + 撤销 session）
-
-// 主 Key 明文响应：
-→ 200 { "ok":true, "accountId":2, "username":"alice", "keyId":1,
+// 主 Key 明文响应示例：200 { "ok":true, "accountId":2, "username":"alice", "keyId":1,
         "prefix":"sk_acc_xxx", "currentPlain":"sk_acc_...",
         "warning":"主 Key 是该账号的「凭证钥匙」..." }
 → 404 NO_MAIN_KEY
@@ -551,11 +661,11 @@ DELETE /api/accounts/:id                  // 软删（含主 Key + 所有 key + 
             </article>
           </div>
 
-          <!-- ③ Key 管理 -->
+          <!-- §7 Key 管理 -->
           <div data-pane="k" class="doc-pane" hidden>
             <article class="doc-card">
               <h3>GET /api/keys</h3>
-              <p class="muted">列出所有 Key（不含明文）。支持 <code class="inline">?q=</code> 模糊搜索、<code class="inline">?tag=</code> 单/多值精确匹配、<code class="inline">?ownerUserId=</code> 限定账号（operator 自动只看自己）。</p>
+              <p class="muted">列出所有 Key（不含明文）。支持 <code class="inline">?q=</code> 模糊搜索，<code class="inline">?tag=</code> 多值精确匹配，<code class="inline">?ownerUserId=</code> 限定账号（operator 自动只看自己）。</p>
               <pre>GET /api/keys
 GET /api/keys?q=prod
 GET /api/keys?tag=prod                     // 精确匹配某个 tag
@@ -586,7 +696,7 @@ Cookie: km_sid=...
             </article>
             <article class="doc-card">
               <h3>GET /api/keys/tags（标签清单 + 计数）</h3>
-              <p class="muted">与 <code class="inline">/api/variables/groups</code> 对齐：扫一遍可见 keys，列出所有出现过的 tag 和次数，<b>按字母排序</b>。operator 仅看自己名下的 tag，admin 默认看全部。</p>
+              <p class="muted">与 <code class="inline">/api/variables/groups</code> 对齐：扫一遍所有 keys，列出所有出现过的 tag 和次数，<b>按字母排序</b>。operator 仅看自己名下的 tag，admin 默认看全部。</p>
               <pre>GET /api/keys/tags
 GET /api/keys/tags?includeDeleted=1          // 包含已软删 key 上的 tag
 GET /api/keys/tags?includeMain=1             // 包含主 Key 上的 tag（仅 admin）
@@ -605,7 +715,7 @@ Cookie: km_sid=...
             </article>
             <article class="doc-card">
               <h3>GET /api/keys/owners（owner 清单 + 计数）</h3>
-              <p class="muted">与 <code class="inline">/api/keys/tags</code> 对齐：列出所有出现过的 owner 和次数，<b>按字母排序</b>，空字符串/null 的 owner 会被过滤。operator 仅看自己名下的 owner，admin 默认看全部。</p>
+              <p class="muted">与 <code class="inline">/api/keys/tags</code> 对齐：列出所有出现过的 owner 和次数，<b>按字母排序</b>，空字符串 / null 的 owner 会被过滤。operator 仅看自己名下的 owner，admin 默认看全部。</p>
               <pre>GET /api/keys/owners
 GET /api/keys/owners?includeDeleted=1
 GET /api/keys/owners?includeMain=1
@@ -630,7 +740,7 @@ Cookie: km_sid=...
 → 200 { "ok": true, "items": [ ... ] }</pre>
             </article>
             <article class="doc-card">
-              <h3>GET /api/keys/tag/:name（按标签取 key）</h3>
+              <h3>GET /api/keys/tag/:name（按标签查 key）</h3>
               <p class="muted">与 <code class="inline">/api/variables/group/:name</code> 对齐：返回含指定 tag 的所有 key（不含明文）。tag 字符集 <code class="inline">[A-Za-z0-9_.\-]{1,32}</code>，跟变量 group 保持一致。</p>
               <pre>GET /api/keys/tag/prod
 GET /api/keys/tag/prod?includeMain=1
@@ -656,7 +766,7 @@ Cookie: km_sid=...
             </article>
             <article class="doc-card">
               <h3>GET /api/keys/:id/plain</h3>
-              <p class="muted">拿明文，供"复制"按钮使用。只返回当前有效明文，不返回历史 key（重置后旧 key 必然 401）。</p>
+              <p class="muted">拿明文，给「复制」按钮使用。只返回当前有效明文，不返回历史 key（重置后旧 key 必然 401）。</p>
               <pre>GET /api/keys/1/plain
 Cookie: km_sid=...
 
@@ -670,13 +780,13 @@ Cookie: km_sid=...
 → 404 NOT_FOUND</pre>
             </article>
             <article class="doc-card">
-              <h3>POST /api/keys — 自动生成</h3>
+              <h3>POST /api/keys · 自动生成</h3>
               <pre>POST /api/keys
 {
   "name":        "prod-server",         // 必填
   "prefix":      "sk_live",             // 可选，默认 sk_live
   "meta":        { "owner":"team-a" },   // 可选，任意 JSON 对象
-  "owner":       "team-a",              // 可选，负责人/团队（独立字段，≤64 字符）
+  "owner":       "team-a",              // 可选，负责人/团队（独立字段，≤ 64 字符）
   "tags":        ["prod","billing"],    // 可选，1~20 项，每项 1~32 字符
   "ownerUserId": 2,                     // 可选（仅 admin），指定归属账号
   "expiresAt":   null                   // 可选，ISO 8601
@@ -706,8 +816,8 @@ Cookie: km_sid=...
 → 409 { "ok":false, "code":"NAME_TAKEN",          "field":"name" }</pre>
             </article>
             <article class="doc-card">
-              <h3>POST /api/keys — 导入已有 Key</h3>
-              <p class="muted">把外部已经签发的 key 纳入管理。<code class="inline">prefix</code> 可省略，自动取前 12 位。<code class="inline">owner</code> / <code class="inline">tags</code> / <code class="inline">ownerUserId</code> 含义同上。</p>
+              <h3>POST /api/keys · 导入已有 Key</h3>
+              <p class="muted">把外部已经签发的 key 纳入管理。<code class="inline">prefix</code> 可省略，自动取前 12 位；<code class="inline">owner</code> / <code class="inline">tags</code> / <code class="inline">ownerUserId</code> 含义同上。</p>
               <pre>POST /api/keys
 {
   "mode":  "import",
@@ -756,7 +866,7 @@ Cookie: km_sid=...
 → 200 { "ok":true, "message":"已更新" }
 → 400 MISSING_NAME / INVALID_META / INVALID_OWNER / INVALID_TAGS / INVALID_EXPIRES_AT
 → 400 INVALID_OWNER_USER_ID
-→ 403 FORBIDDEN（无权操作 / 越权改 ownerUserId）
+→ 403 FORBIDDEN（无权操作 / 越权改 ownerUserId 等）
 → 404 ACCOUNT_NOT_FOUND / NOT_FOUND
 → 409 ACCOUNT_DISABLED / DELETED / NAME_TAKEN</pre>
             </article>
@@ -793,14 +903,14 @@ Cookie: km_sid=...
                 <li><b>tags</b> 字符串数组，1~20 项，每项 1~32 字符。</li>
                 <li><b>ownerUserId</b> 归属账号 id（仅 admin 可改）。</li>
                 <li><b>expiresAt</b> ISO 8601 字符串。过期后验证返回 <code class="inline">EXPIRED</code>。</li>
-                <li><b>明文存储</b>：数据库存 <code class="inline">current_plain</code>（当前有效 key 的明文，每次重置都更新）。软删不会清除明文（行还在），仅 <code class="inline">/api/keys/:id/purge</code> 硬删才会整行清除。</li>
-                <li><b>软删</b>：<code class="inline">DELETE /api/keys/:id</code> 只会设置 <code class="inline">deleted_at</code>，<code class="inline">/v1/verify</code> 看不到、列表默认不显示，30 天内可 <code class="inline">/restore</code>。</li>
+                <li><b>明文存储</b>：数据库有 <code class="inline">current_plain</code>（当前有效 key 的明文，每次重置都更新）。软删不会清除明文（行还在），仅 <code class="inline">/api/keys/:id/purge</code> 硬删才会整行清除。</li>
+                <li><b>软删</b>：<code class="inline">DELETE /api/keys/:id</code> 只会设置 <code class="inline">deleted_at</code>，<code class="inline">/v1/verify</code> 看不到、列表默认不显示；30 天内可 <code class="inline">/restore</code>。</li>
                 <li><b>主 Key</b>：由 <code class="inline">/api/accounts</code> 创建/管理，<code class="inline">/api/keys</code> 列表默认不显示（<code class="inline">?includeMain=1</code> 可看，admin only）。</li>
               </ul>
             </article>
           </div>
 
-          <!-- ③.5 变量管理 -->
+          <!-- §8 变量管理 -->
           <div data-pane="va2" class="doc-pane" hidden>
             <article class="doc-card">
               <h3>GET /api/variables</h3>
@@ -859,7 +969,7 @@ Cookie: km_sid=...
 {
   "name":        "DB_URL",
   "value":       "postgres://...",
-  "description": "生产 DB",          // 可选，≤500 字符
+  "description": "生产 DB",          // 可选，≤ 500 字符
   "group":       "DB"                // 可选，2~64 字符 [A-Za-z0-9_.-]
 }
 
@@ -871,8 +981,16 @@ Cookie: km_sid=...
 → 409 { "ok":false, "code":"NAME_TAKEN",     "field":"name" }</pre>
             </article>
             <article class="doc-card">
+              <h3>GET /api/variables/:id</h3>
+              <pre>GET /api/variables/1
+Cookie: km_sid=...
+
+→ 200 { "ok":true, "id":1, "name":"DB_URL", "value":"...", "description":"...", "group":"DB" }
+→ 404 NOT_FOUND</pre>
+            </article>
+            <article class="doc-card">
               <h3>PATCH /api/variables/:id</h3>
-              <p class="muted">局部更新（改名 / 改值 / 改描述 / 改分组），所有字段可选。<code class="inline">group: null</code> 或 <code class="inline">group: ""</code> 可将变量移出分组。</p>
+              <p class="muted">局部更新（改名 / 改值 / 改描述 / 改分组），所有字段可选。<code class="inline">group: null</code> / <code class="inline">group: ""</code> 可将变量移出分组。</p>
               <pre>PATCH /api/variables/1
 { "value":"postgres://新连接串", "description":"新说明", "group":"DB" }
 
@@ -890,17 +1008,17 @@ Cookie: km_sid=...
             <article class="doc-card span-2">
               <h3>字段说明</h3>
               <ul class="doc-list">
-                <li><b>name</b> 2~64 字符，<code class="inline">[A-Za-z0-9_.-]</code>，全局唯一。业务侧调 <code class="inline">/v1/variables/get</code> 时传这个。</li>
+                <li><b>name</b> 2~64 字符 <code class="inline">[A-Za-z0-9_.-]</code>，全局唯一。业务侧调 <code class="inline">/v1/variables/get</code> 时传这个。</li>
                 <li><b>value</b> 字符串，≤ 8192 字符。建议存连接串、API key、JSON 序列化配置等。</li>
                 <li><b>description</b> 可选，≤ 500 字符。仅供后台展示，<b>不会</b>返回给业务侧。</li>
-                <li><b>group</b> 可选，2~64 字符 <code class="inline">[A-Za-z0-9_.-]</code>。<code class="inline">null</code> / <code class="inline">""</code> = 未分组。相同 group 的变量会出现在 <code class="inline">/v1/variables/group</code> 响应中。</li>
+                <li><b>group</b> 可选，2~64 字符 <code class="inline">[A-Za-z0-9_.-]</code>，<code class="inline">null</code> / <code class="inline">""</code> = 未分组。相同 group 的变量会出现在 <code class="inline">/v1/variables/group</code> 响应中。</li>
                 <li><b>更新时间</b> 改名 / 改值 / 改描述 / 改分组都会刷新。</li>
                 <li><b>对应业务侧接口</b>：见上方「对外变量 API」标签页。</li>
               </ul>
             </article>
           </div>
 
-          <!-- ④ 日志 -->
+          <!-- §9 日志 -->
           <div data-pane="l" class="doc-pane" hidden>
             <article class="doc-card">
               <h3>GET /api/logs</h3>
@@ -915,7 +1033,7 @@ Cookie: km_sid=...
   "total": 1234,
   "items": [
     { "id":1, "key_id":1, "key_prefix":"sk_live_2092",
-      "key_masked":"sk_live…4osUU", "ip":"1.2.3.4",
+      "key_masked":"sk_live…osUU", "ip":"1.2.3.4",
       "user_agent":"curl/8.0", "result":"ok", "reason":null,
       "duration_ms":1.2, "created_at":"2026-06-11 10:00:00" }
   ]
@@ -923,7 +1041,7 @@ Cookie: km_sid=...
             </article>
             <article class="doc-card">
               <h3>GET /api/audit（仅 admin）</h3>
-              <p class="muted">审计日志：登录、改密、Key 增删改、用户管理、verify 配置变更等。含操作者 IP / UA。</p>
+              <p class="muted">审计日志：登录、改密、Key 增删改、用户管理、verify 配置变更等。含操作人 / IP / UA。</p>
               <pre>GET /api/audit?action=CREATE_KEY&amp;user_id=1&amp;limit=50&amp;offset=0
 GET /api/audit?target_type=key    // 按目标类型过滤
 Cookie: km_sid=...
@@ -959,7 +1077,7 @@ Cookie: km_sid=...
             </article>
           </div>
 
-          <!-- ⑤ 状态码 -->
+          <!-- §10 状态码 -->
           <div data-pane="s" class="doc-pane" hidden>
             <article class="doc-card">
               <h3>状态码语义</h3>
@@ -973,7 +1091,7 @@ Cookie: km_sid=...
                   <tr><td><code>404</code></td><td>Not Found</td><td>资源不存在</td></tr>
                   <tr><td><code>409</code></td><td>Conflict</td><td>name 重复 / 导入的 key 哈希已存在 / 资源已被删除 / 软删账号改名 / 最后一个 admin 保护</td></tr>
                   <tr><td><code>422</code></td><td>Unprocessable</td><td>格式合法但语义错（key 太短、过期时间已过去）</td></tr>
-                  <tr><td><code>429</code></td><td>Too Many Requests</td><td>限流（verify 600/min/IP，variables 1200/min/IP；登录 5 次/10 分钟）</td></tr>
+                  <tr><td><code>429</code></td><td>Too Many Requests</td><td>限流（verify 600/min/IP，variables 1200/min/IP；登录 5 次 / 10 分钟）</td></tr>
                   <tr><td><code>503</code></td><td>Service Unavailable</td><td>健康检查：DB 不可用</td></tr>
                 </tbody>
               </table>
@@ -1020,7 +1138,6 @@ FORBIDDEN                         权限不足
 TOO_MANY / TOO_MANY_LOGIN_FAILURES  限流 / 登录爆破
 MISSING_CREDENTIALS / INVALID_CREDENTIALS / INVALID_CURRENT_PASSWORD  登录失败
 UNAUTHORIZED                      未登录
-
 // /v1/verify 用另一组：NOT_FOUND / DISABLED / EXPIRED / MISSING_KEY
 // /v1/variables/*：MISSING_NAME / INVALID_NAME / NOT_FOUND / MISSING_KEY / NOT_FOUND_KEY
 //                  DISABLED / EXPIRED / MISSING_NAMES / TOO_MANY / SCOPE_FORBIDDEN
@@ -1030,11 +1147,11 @@ UNAUTHORIZED                      未登录
             <article class="doc-card span-2">
               <h3>认证机制</h3>
               <ul class="doc-list">
-                <li>登录成功后下发 <code class="inline">km_sid</code> Cookie（<code class="inline">HttpOnly</code>，<code class="inline">SameSite=Lax</code>，HTTPS 时可设 <code class="inline">COOKIE_SECURE=1</code> 启用 <code class="inline">Secure</code> 标志）。</li>
-                <li>所有 <code class="inline">/api/*</code> 需要带该 Cookie，否则 401。</li>
+                <li>登录成功后下发 <code class="inline">km_sid</code> Cookie（<code class="inline">HttpOnly</code>、<code class="inline">SameSite=Lax</code>，HTTPS 时可通过 <code class="inline">COOKIE_SECURE=1</code> 启用 <code class="inline">Secure</code> 标志）。</li>
+                <li>所有 <code class="inline">/api/*</code> 需要带上 Cookie，否则 401。</li>
                 <li>Cookie 默认有效期 7 天；<code class="inline">POST /api/auth/change-password</code> 改密会撤销该用户的其它 session（当前会话保留）。</li>
                 <li><code class="inline">/v1/verify</code>、<code class="inline">/v1/variables/*</code> 不需要后台认证，仅用 Key 鉴权 + 限流。</li>
-                <li>登录失败限流：同 IP 10 分钟内连续 5 次失败 → 锁 15 分钟（<code class="inline">429 TOO_MANY_LOGIN_FAILURES</code>）。</li>
+                <li>登录失败限流：同 IP 10 分钟内连续 5 次失败 → 锁定 15 分钟（<code class="inline">429 TOO_MANY_LOGIN_FAILURES</code>）。</li>
                 <li>本系统未实现 CSRF Token（依赖 <code class="inline">SameSite=Lax</code> Cookie 防跨站）；若反向代理后只对自家内网开放，CSRF 风险可忽略。</li>
               </ul>
             </article>
@@ -1043,23 +1160,24 @@ UNAUTHORIZED                      未登录
               <table class="grid code-table">
                 <thead><tr><th>能力</th><th>viewer</th><th>operator</th><th>admin</th></tr></thead>
                 <tbody>
-                  <tr><td>查看 Key / 变量 / 日志</td><td>✓</td><td>✓</td><td>✓</td></tr>
-                  <tr><td>查看审计日志（<code class="inline">/api/audit</code>）</td><td>—</td><td>—</td><td>✓</td></tr>
-                  <tr><td>创建 / 修改 / 删除 / 重置 Key</td><td>—</td><td>✓（仅自己名下）</td><td>✓</td></tr>
-                  <tr><td>创建 / 修改 / 删除变量</td><td>—</td><td>✓</td><td>✓</td></tr>
-                  <tr><td>查看主 Key 明文 / 刷新主 Key</td><td>—</td><td>—</td><td>✓</td></tr>
-                  <tr><td>用户 / 账号管理（增删改查、重置密码）</td><td>—</td><td>—</td><td>✓</td></tr>
-                  <tr><td>查看 <code class="inline">/api/metrics</code></td><td>—</td><td>—</td><td>✓</td></tr>
+                  <tr><td>查看 Key / 变量</td><td>✓</td><td>✓</td><td>✓</td></tr>
+                  <tr><td>查看验证日志（<code class="inline">/api/logs</code>）</td><td>✓</td><td>✓</td><td>✓</td></tr>
+                  <tr><td>查看审计日志（<code class="inline">/api/audit</code>）</td><td>✓</td><td>✓</td><td>✓</td></tr>
+                  <tr><td>创建 / 修改 / 删除 / 重置 Key</td><td>✗</td><td>✓（仅自己名下）</td><td>✓</td></tr>
+                  <tr><td>创建 / 修改 / 删除变量</td><td>✗</td><td>✓</td><td>✓</td></tr>
+                  <tr><td>查看主 Key 明文 / 刷新主 Key</td><td>✗</td><td>✗</td><td>✓</td></tr>
+                  <tr><td>用户 / 账号管理（增删改查、重置密码）</td><td>✗</td><td>✗</td><td>✓</td></tr>
+                  <tr><td>查看 <code class="inline">/api/metrics</code></td><td>✗</td><td>✗</td><td>✓</td></tr>
                 </tbody>
               </table>
             </article>
           </div>
 
-          <!-- ⑥ 系统 & 监控 -->
+          <!-- §11 系统 & 监控 -->
           <div data-pane="sm" class="doc-pane" hidden>
             <article class="doc-card">
               <h3>GET /healthz</h3>
-              <p class="muted">健康检查。<b>无需鉴权</b>，供 K8s liveness / readiness、负载均衡健康探测用。</p>
+              <p class="muted">健康检查，<b>无需鉴权</b>，供 K8s liveness / readiness、负载均衡健康探测用。</p>
               <pre>GET /healthz
 
 → 200
@@ -1083,7 +1201,6 @@ UNAUTHORIZED                      未登录
               <p class="muted">内存指标快照：累计计数 + 最近 1024 个请求的响应时间分位。可对接 Prometheus / 自建监控定期抓取。</p>
               <pre>GET /api/metrics
 Cookie: km_sid=...（admin 角色）
-
 → 200
 {
   "ok": true,
@@ -1128,23 +1245,27 @@ Content-Type: application/json
               <pre># npm run backup             # 打包 db + 最近 7 天日志
 # npm run backup -- 30       # 打包 db + 最近 30 天日志
 # BACKUP_KEEP=60 npm run backup   # 保留 60 份历史
-
 # 输出：./backups/keymgr-backup-YYYYMMDD-HHmmss.tar.gz
 # 内容：data/keymgr.db + logs/app-*.log（按 BACKUP_LOG_DAYS 过滤）
 # 自动清理：超过 BACKUP_KEEP 份的最旧备份会被删除
-
 # .gitignore 已忽略 backups/ 目录（备份含真实 db 数据）</pre>
             </article>
           </div>
         </div>
       </div>
     </section>
+
+    <!-- Handover (隐藏 tab，由按钮直接弹窗) -->
+    <section id="tab-handover" class="tab">
+    </section>
   </main>
+    </div><!-- .main-area -->
+  </div><!-- .app-layout -->
 
   <!-- 新建 Key 弹窗 -->
   <div class="modal" id="new-key-modal" hidden>
     <div class="modal-card modal-card-wide">
-      <button type="button" class="modal-close" id="new-key-close" aria-label="关闭">×</button>
+      <button type="button" class="modal-close" id="new-key-close" aria-label="关闭"></button>
       <h3>新建 Key</h3>
       <p class="muted" style="margin:0 0 12px;">选择创建方式，再填信息。</p>
 
@@ -1161,7 +1282,7 @@ Content-Type: application/json
         <!-- 自动生成：自定义前缀 -->
         <div data-show="generate">
           <label>前缀
-            <input name="prefix" placeholder="留空使用默认 sk_live" list="prefix-presets" />
+            <input name="generatePrefix" placeholder="留空使用默认 sk_live" list="prefix-presets" />
             <span class="help">允许字母/数字/下划线/中划线/点，2~24 字符。留空使用 <code>sk_live</code>。</span>
           </label>
           <datalist id="prefix-presets">
@@ -1181,11 +1302,11 @@ Content-Type: application/json
           <details class="advanced" open>
             <summary>高级：自定义前缀（可选）</summary>
             <label>自定义前缀
-              <input name="prefix" placeholder="留空则自动取 key 前 12 位" />
+              <input name="importPrefix" placeholder="留空则自动取 key 前 12 位" />
               <span class="help">任何前缀都可以，例如 <code>ak_</code>、<code>tk_</code>、<code>xoxb-</code>、<code>sk-proj-</code>。不影响验证。</span>
             </label>
           </details>
-          <p class="help">导入后系统只保存 SHA-256 哈希，明文不会落库。需要再次复制可点列表里的"重置"。</p>
+          <p class="help">导入后系统保存 SHA-256 哈希，并用 AES-256-GCM 加密保存当前明文；需要换新值可点列表里的「重置」。</p>
         </div>
 
         <div class="field-row">
@@ -1198,7 +1319,7 @@ Content-Type: application/json
               <input type="hidden" name="owner" id="key-owner-new-hidden" value="" />
               <div class="group-picker-panel" id="key-owner-new-panel" role="listbox" hidden>
                 <div class="group-picker-search">
-                  <input type="text" id="key-owner-new-search" placeholder="搜索已有 owner 或直接输入新名字…" autocomplete="off" />
+                  <input type="text" id="key-owner-new-search" placeholder="搜索已有 owner 或直接输入新名字" autocomplete="off" />
                   <button type="button" class="group-picker-clear" id="key-owner-new-clear" title="清空">×</button>
                 </div>
                 <div class="group-picker-list" id="key-owner-new-list"></div>
@@ -1218,7 +1339,7 @@ Content-Type: application/json
           <div class="tag-picker" id="tag-picker-new">
             <div class="tag-picker-field" id="tag-picker-new-field">
               <span class="tag-picker-empty">（点击下方输入或从已有标签选择）</span>
-              <input type="text" class="tag-picker-input" id="tag-picker-new-input" placeholder="搜索或新建标签…" autocomplete="off" />
+              <input type="text" class="tag-picker-input" id="tag-picker-new-input" placeholder="搜索或新建标签" autocomplete="off" />
             </div>
             <div class="tag-picker-panel" id="tag-picker-new-panel" hidden>
               <div class="tag-picker-list" id="tag-picker-new-list"></div>
@@ -1251,7 +1372,7 @@ Content-Type: application/json
   <!-- 变量编辑弹窗 -->
   <div class="modal" id="var-modal" hidden>
     <div class="modal-card">
-      <button type="button" class="modal-close" id="var-modal-close" aria-label="关闭">×</button>
+      <button type="button" class="modal-close" id="var-modal-close" aria-label="关闭"></button>
       <h3 id="var-modal-title">新建变量</h3>
       <p class="muted" style="margin:0 0 12px;" id="var-modal-sub">name 全局唯一，2~64 字符。</p>
 
@@ -1275,7 +1396,7 @@ Content-Type: application/json
             <input type="hidden" name="group" id="var-group-hidden" value="" />
             <div class="group-picker-panel" id="var-group-panel" role="listbox" hidden>
               <div class="group-picker-search">
-                <input type="text" id="var-group-search" placeholder="搜索已有分组或输入新分组名…" autocomplete="off" />
+                <input type="text" id="var-group-search" placeholder="搜索已有分组或输入新分组名" autocomplete="off" />
                 <button type="button" class="group-picker-clear" id="var-group-clear" title="清空">×</button>
               </div>
               <div class="group-picker-list" id="var-group-list"></div>
@@ -1300,7 +1421,7 @@ Content-Type: application/json
   <!-- 查看分组（批量展示一个分组下所有 name/value） -->
   <div class="modal" id="group-modal" hidden>
     <div class="modal-card" style="max-width:640px;">
-      <button type="button" class="modal-close" id="group-modal-close" aria-label="关闭">×</button>
+      <button type="button" class="modal-close" id="group-modal-close" aria-label="关闭"></button>
       <h3>查看分组 · <span id="group-modal-title" style="font-family:monospace;"></span></h3>
       <p class="muted" style="margin:0 0 12px;">
         该分组下的全部 name/value 集合。业务侧可用 <code class="inline">POST /v1/variables/group</code> 一次性取走。
@@ -1316,7 +1437,7 @@ Content-Type: application/json
   <!-- 重置子账号密码 -->
   <div class="modal" id="reset-pw-modal" hidden>
     <div class="modal-card modal-card-wide">
-      <button type="button" class="modal-close" id="reset-pw-close" aria-label="关闭">×</button>
+      <button type="button" class="modal-close" id="reset-pw-close" aria-label="关闭"></button>
       <h3>重置账号密码 · <span id="reset-pw-username" style="font-family:monospace;"></span></h3>
       <p class="muted" style="margin:0 0 12px;">
         系统会生成 1 个 16 字符高强度新密码，<b>覆盖</b>该账号的当前密码，并<b>撤销其所有 session</b>（强制重新登录）。<br>
@@ -1338,7 +1459,7 @@ Content-Type: application/json
   <!-- 应用内确认弹窗（替代浏览器原生 confirm()，避免黑屏体验） -->
   <div class="modal" id="confirm-modal" hidden>
     <div class="modal-card modal-card-narrow confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
-      <button type="button" class="modal-close" data-confirm-close aria-label="关闭">×</button>
+      <button type="button" class="modal-close" data-confirm-close aria-label="关闭"></button>
       <span class="modal-card-icon" aria-hidden="true">!</span>
       <h3 id="confirm-title">确认操作</h3>
       <p id="confirm-message" class="confirm-message"></p>
@@ -1352,7 +1473,7 @@ Content-Type: application/json
   <!-- 修改我的密码 -->
   <div class="modal" id="change-pw-modal" hidden>
     <div class="modal-card modal-card-narrow">
-      <button type="button" class="modal-close" id="change-pw-close" aria-label="关闭">×</button>
+      <button type="button" class="modal-close" id="change-pw-close" aria-label="关闭"></button>
       <h3>修改我的密码</h3>
       <p class="muted" style="margin:0 0 12px;">
         需要先输旧密码验证。改完后会撤销该账号的其它 session（当前会话保留）。
@@ -1376,7 +1497,7 @@ Content-Type: application/json
   <!-- 编辑 Key 弹窗 -->
   <div class="modal" id="edit-key-modal" hidden>
     <div class="modal-card">
-      <button type="button" class="modal-close" id="edit-key-close" aria-label="关闭">×</button>
+      <button type="button" class="modal-close" id="edit-key-close" aria-label="关闭"></button>
       <h3>编辑 Key</h3>
       <p class="muted" style="margin:0 0 12px;">修改元数据（name / owner / tags / 过期 / meta），不会改明文。</p>
       <form id="edit-key-form">
@@ -1397,7 +1518,7 @@ Content-Type: application/json
             <input type="hidden" name="owner" id="key-owner-edit-hidden" value="" />
             <div class="group-picker-panel" id="key-owner-edit-panel" role="listbox" hidden>
               <div class="group-picker-search">
-                <input type="text" id="key-owner-edit-search" placeholder="搜索已有 owner 或直接输入新名字…" autocomplete="off" />
+                <input type="text" id="key-owner-edit-search" placeholder="搜索已有 owner 或直接输入新名字" autocomplete="off" />
                 <button type="button" class="group-picker-clear" id="key-owner-edit-clear" title="清空">×</button>
               </div>
               <div class="group-picker-list" id="key-owner-edit-list"></div>
@@ -1409,7 +1530,7 @@ Content-Type: application/json
           <div class="tag-picker" id="tag-picker-edit">
             <div class="tag-picker-field" id="tag-picker-edit-field">
               <span class="tag-picker-empty">（点击下方输入或从已有标签选择）</span>
-              <input type="text" class="tag-picker-input" id="tag-picker-edit-input" placeholder="搜索或新建标签…" autocomplete="off" />
+              <input type="text" class="tag-picker-input" id="tag-picker-edit-input" placeholder="搜索或新建标签" autocomplete="off" />
             </div>
             <div class="tag-picker-panel" id="tag-picker-edit-panel" hidden>
               <div class="tag-picker-list" id="tag-picker-edit-list"></div>
@@ -1449,7 +1570,7 @@ Content-Type: application/json
   <!-- 查看账号主 Key 明文 -->
   <div class="modal" id="main-key-modal" hidden>
     <div class="modal-card modal-card-wide">
-      <button type="button" class="modal-close" id="main-key-close" aria-label="关闭">×</button>
+      <button type="button" class="modal-close" id="main-key-close" aria-label="关闭"></button>
       <h3 id="main-key-modal-title">账号主 Key</h3>
       <p class="muted" style="margin:0 0 12px;" id="main-key-modal-sub"></p>
       <div class="result-box">
@@ -1468,13 +1589,13 @@ Content-Type: application/json
   <!-- 新建子账号 -->
   <div class="modal" id="new-account-modal" hidden>
     <div class="modal-card">
-      <button type="button" class="modal-close" id="new-account-close" aria-label="关闭">×</button>
+      <button type="button" class="modal-close" id="new-account-close" aria-label="关闭"></button>
       <h3>新建子账号</h3>
       <p class="muted" style="margin:0 0 12px;">会自动生成 1 个主 Key（仅 admin 可见 / 可刷）。</p>
       <form id="new-account-form">
-        <label>用户名 <input name="username" required placeholder="小写字母/数字/_.-" autocomplete="off" /></label>
+        <label>用户名 *<input name="username" required placeholder="小写字母/数字/_.-" autocomplete="off" /></label>
         <label>显示名（可选） <input name="displayName" maxlength="64" placeholder="如：Alice / 移动端团队" /></label>
-        <label>密码 <input name="password" type="password" required minlength="8" maxlength="128" placeholder="≥ 8 字符" autocomplete="new-password" /></label>
+        <label>密码 <input name="password" type="password" required minlength="8" maxlength="128" placeholder="至少 8 字符" autocomplete="new-password" /></label>
         <label>角色
           <select name="role">
             <option value="operator" selected>operator（可读写 key / 变量，不可管用户）</option>
@@ -1487,6 +1608,100 @@ Content-Type: application/json
           <button type="submit" id="btn-submit-account">创建</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Key 时间轴弹窗 -->
+  <div class="modal" id="timeline-modal" hidden>
+    <div class="modal-card" style="max-width:640px;">
+      <button type="button" class="modal-close" id="timeline-close" aria-label="关闭"></button>
+      <h3>Key 生命周期 · <span id="timeline-key-name"></span></h3>
+      <div id="timeline-body" style="max-height:60vh;overflow:auto;"></div>
+      <div class="modal-actions">
+        <button type="button" id="timeline-cancel" class="secondary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key 健康评分弹窗 -->
+  <div class="modal" id="health-modal" hidden>
+    <div class="modal-card" style="max-width:480px;">
+      <button type="button" class="modal-close" id="health-close" aria-label="关闭"></button>
+      <h3>Key 健康评分 · <span id="health-key-name"></span></h3>
+      <div id="health-body"></div>
+      <div class="modal-actions">
+        <button type="button" id="health-cancel" class="secondary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第三方 Key 检测弹窗 -->
+  <div class="modal" id="check-modal" hidden>
+    <div class="modal-card" style="max-width:560px;">
+      <button type="button" class="modal-close" id="check-close" aria-label="关闭"></button>
+      <h3>第三方 Key 有效性检测 · <span id="check-key-name"></span></h3>
+      <div id="check-body"></div>
+      <div class="modal-actions">
+        <button type="button" id="check-cancel" class="secondary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 账号编辑弹窗 -->
+  <div class="modal" id="edit-account-modal" hidden>
+    <div class="modal-card" style="max-width:440px;">
+      <button type="button" class="modal-close" id="edit-account-close" aria-label="关闭"></button>
+      <h3>编辑账号 · <span id="edit-account-username"></span></h3>
+      <form id="edit-account-form">
+        <label>显示名<input name="displayName" maxlength="64" placeholder="如：Alice / 移动端团队" /></label>
+        <label>角色
+          <select name="role">
+            <option value="operator">operator</option>
+            <option value="viewer">viewer</option>
+            <option value="admin">admin</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" name="disabled"> 停用该账号</label>
+        <input type="hidden" name="id" />
+        <div class="modal-actions">
+          <button type="button" id="edit-account-cancel" class="secondary">取消</button>
+          <button type="submit" id="edit-account-submit">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 交接报告弹窗 -->
+  <div class="modal" id="handover-modal" hidden>
+    <div class="modal-card" style="max-width:800px;">
+      <button type="button" class="modal-close" id="handover-close" aria-label="关闭"></button>
+      <h3><span data-i="nav_handover"></span> 交接报告</h3>
+      <div id="handover-body" style="max-height:70vh;overflow:auto;"></div>
+      <div class="modal-actions">
+        <button type="button" id="handover-copy" class="ghost">复制为文本</button>
+        <button type="button" id="handover-cancel" class="secondary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 变量热度统计弹窗 -->
+  <div class="modal" id="var-heat-modal" hidden>
+    <div class="modal-card" style="max-width:700px;">
+      <button type="button" class="modal-close" id="var-heat-close" aria-label="关闭"></button>
+      <h3><span data-i="flame"></span> 变量热度统计</h3>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <span class="muted">范围：</span>
+        <select id="var-heat-days" style="width:auto;">
+          <option value="7">7 天</option>
+          <option value="30" selected>30 天</option>
+          <option value="90">90 天</option>
+        </select>
+        <button class="ghost" id="var-heat-refresh" title="刷新"><span data-i="refresh"></span></button>
+      </div>
+      <div id="var-heat-body" style="max-height:60vh;overflow:auto;"></div>
+      <div class="modal-actions">
+        <button type="button" id="var-heat-cancel" class="secondary">关闭</button>
+      </div>
     </div>
   </div>
 

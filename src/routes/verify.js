@@ -5,13 +5,14 @@ const db = require('../db');
 const log = require('../logger');
 const metrics = require('../metrics');
 const alerts = require('../alerts');
+const config = require('../config');
 const { getDefaultAdminId } = require('../users');
 
 const router = express.Router();
 
 const verifyLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 600, // 单 IP 每分钟最多 600 次验证，可按需调
+  limit: config.verifyRateLimitPerMin,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
 });
@@ -47,8 +48,11 @@ function extractKey(req) {
 
 function resolveVerifyAccount(req) {
   const body = req.body || {};
-  if (body.account !== undefined && body.account !== null && body.account !== '') {
-    const u = db.prepare('SELECT id, disabled FROM users WHERE username = ? AND deleted_at IS NULL').get(String(body.account));
+  const accountName = body.account !== undefined && body.account !== null && body.account !== ''
+    ? body.account
+    : body.ownerUsername;
+  if (accountName !== undefined && accountName !== null && accountName !== '') {
+    const u = db.prepare('SELECT id, username, disabled FROM users WHERE username = ? AND deleted_at IS NULL').get(String(accountName));
     if (!u) return { error: 'ACCOUNT_NOT_FOUND', status: 200, msg: '账号不存在' };
     if (u.disabled) return { error: 'ACCOUNT_DISABLED', status: 200, msg: '账号已停用' };
     return { userId: u.id, username: u.username };
@@ -109,6 +113,49 @@ process.once('beforeExit', flushLastUsed);
 process.once('SIGINT',  () => { flushLastUsed(); });
 process.once('SIGTERM', () => { flushLastUsed(); });
 
+function authenticateKeyForAccount(plain, acct) {
+  if (!plain) return { ok: false, code: 'MISSING_KEY' };
+  const hash = crypto.createHash('sha256').update(plain).digest('hex');
+  // 注意：兼容老库——owner_user_id IS NULL 也算「admin 的 key」
+  const row = db.prepare(
+    `SELECT id, name, prefix, meta, enabled, expires_at, owner_user_id, is_default
+     FROM api_keys
+     WHERE hash = ?
+       AND deleted_at IS NULL
+       AND (owner_user_id = ? OR owner_user_id IS NULL)`
+  ).get(hash, acct.userId);
+
+  // 主 Key 通杀逻辑：找不到时，尝试「admin 账号的主 Key」作为超级钥匙
+  //   - 如果请求中传入了非 admin 账号的 scope，则 admin 主 Key 不开此权限（保持作用域）
+  //   - 如果请求中未指定账号 / 指定 admin，则 admin 主 Key 可命中任意账号下的 key
+  //   - 同时：直接找到的 row 如果本身就是 admin 账号的主 Key，也算 superKey
+  let superKeyRow = null;
+  let isSuperKey = false;
+  const defaultAdminId = getDefaultAdminId();
+  if (!row && acct.userId === defaultAdminId) {
+    superKeyRow = db.prepare(
+      `SELECT k.id, k.name, k.prefix, k.meta, k.enabled, k.expires_at, k.owner_user_id, k.is_default
+       FROM api_keys k
+       JOIN users u ON u.id = k.owner_user_id
+       WHERE k.hash = ? AND k.deleted_at IS NULL
+         AND k.is_default = 1 AND u.role = 'admin' AND u.disabled = 0`
+    ).get(hash);
+    if (superKeyRow) isSuperKey = true;
+  } else if (row && row.is_default === 1 && row.owner_user_id === defaultAdminId) {
+    isSuperKey = true;
+  }
+
+  const effectiveRow = row || superKeyRow;
+  if (!effectiveRow) return { ok: false, code: 'NOT_FOUND' };
+  if (!effectiveRow.enabled) return { ok: false, code: 'DISABLED', row: effectiveRow, superKey: isSuperKey };
+  if (effectiveRow.expires_at && new Date(effectiveRow.expires_at).getTime() < Date.now()) {
+    return { ok: false, code: 'EXPIRED', row: effectiveRow, superKey: isSuperKey };
+  }
+  let meta = null;
+  try { if (effectiveRow.meta) meta = JSON.parse(effectiveRow.meta); } catch (_) {}
+  return { ok: true, row: effectiveRow, meta, superKey: isSuperKey };
+}
+
 /**
  * POST /v1/verify
  *
@@ -147,40 +194,13 @@ router.post('/verify', verifyLimiter, (req, res) => {
     return res.json({ valid: false, code: 'MISSING_KEY', reason: '未提供 key' });
   }
 
-  const hash = crypto.createHash('sha256').update(plain).digest('hex');
-  // 注意：兼容老库——owner_user_id IS NULL 也算「admin 的 key」
-  const row = db.prepare(
-    `SELECT id, name, prefix, meta, enabled, expires_at, owner_user_id, is_default
-     FROM api_keys
-     WHERE hash = ?
-       AND deleted_at IS NULL
-       AND (owner_user_id = ? OR owner_user_id IS NULL)`
-  ).get(hash, acct.userId);
-
-  // 主 Key 通杀逻辑：找不到时，尝试「admin 账号的主 Key」作为超级钥匙
-  //   - 如果请求中传入了非 admin 账号的 scope，则 admin 主 Key 不开此权限（保持作用域）
-  //   - 如果请求中未指定账号 / 指定 admin，则 admin 主 Key 可命中任意账号下的 key
-  //   - 同时：直接找到的 row 如果本身就是 admin 账号的主 Key，也算 superKey
-  let superKeyRow = null;
-  let isSuperKey = false;
-  if (!row && acct.userId === getDefaultAdminId()) {
-    superKeyRow = db.prepare(
-      `SELECT k.id, k.name, k.prefix, k.meta, k.enabled, k.expires_at, k.owner_user_id
-       FROM api_keys k
-       JOIN users u ON u.id = k.owner_user_id
-       WHERE k.hash = ? AND k.deleted_at IS NULL
-         AND k.is_default = 1 AND u.role = 'admin' AND u.disabled = 0`
-    ).get(hash);
-    if (superKeyRow) isSuperKey = true;
-  } else if (row && row.is_default === 1 && row.owner_user_id === getDefaultAdminId()) {
-    isSuperKey = true;
-  }
+  const authResult = authenticateKeyForAccount(plain, acct);
 
   let result = 'fail';
   let reason = 'INVALID';
   let body;
-
-  const effectiveRow = row || superKeyRow;
+  const effectiveRow = authResult.row || null;
+  const isSuperKey = !!authResult.superKey;
 
   if (!effectiveRow) {
     reason = 'NOT_FOUND';
@@ -202,7 +222,7 @@ router.post('/verify', verifyLimiter, (req, res) => {
       ownerUserId: effectiveRow.owner_user_id,
       isDefault: !!effectiveRow.is_default || isSuperKey,
       superKey: isSuperKey,
-      meta: effectiveRow.meta ? JSON.parse(effectiveRow.meta) : null,
+      meta: authResult.meta,
     };
     touchLastUsed(effectiveRow.id);
   }
@@ -231,21 +251,18 @@ router.get('/verify', (_req, res) => {
 });
 
 // ====== 变量取值（鉴权逻辑：复用 verify 的 key 校验）======
-function checkKey(plain, expectedUserId) {
-  if (!plain) return { ok: false, code: 'MISSING_KEY' };
-  const hash = crypto.createHash('sha256').update(plain).digest('hex');
-  const row = db.prepare(
-    `SELECT id, name, meta, enabled, expires_at, owner_user_id
-     FROM api_keys
-     WHERE hash = ? AND deleted_at IS NULL AND (owner_user_id = ? OR owner_user_id IS NULL)`
-  ).get(hash, expectedUserId);
-  if (!row) return { ok: false, code: 'NOT_FOUND' };
-  if (!row.enabled) return { ok: false, code: 'DISABLED' };
-  if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return { ok: false, code: 'EXPIRED' };
-  touchLastUsed(row.id);
-  let meta = null;
-  try { if (row.meta) meta = JSON.parse(row.meta); } catch (_) {}
-  return { ok: true, keyId: row.id, name: row.name, meta, account: row.owner_user_id };
+function checkKey(plain, acct) {
+  const authResult = authenticateKeyForAccount(plain, acct);
+  if (!authResult.ok) return { ok: false, code: authResult.code };
+  touchLastUsed(authResult.row.id);
+  return {
+    ok: true,
+    keyId: authResult.row.id,
+    name: authResult.row.name,
+    meta: authResult.meta,
+    account: authResult.row.owner_user_id,
+    superKey: authResult.superKey,
+  };
 }
 
 /**
@@ -271,9 +288,35 @@ function keyAllowsAnyScope(keyMeta, names) {
   return names.filter(n => set.has(n));
 }
 
+// ====== 变量访问日志（异步批写） ======
+const varAccessPending = [];
+let varAccessFlushTimer = null;
+const VAR_ACCESS_FLUSH_MS = 5000;
+
+function logVarAccess(varName, keyId, req, result) {
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
+  varAccessPending.push({ varName, keyId, ip, result });
+  if (!varAccessFlushTimer) {
+    varAccessFlushTimer = setTimeout(flushVarAccess, VAR_ACCESS_FLUSH_MS);
+    if (varAccessFlushTimer.unref) varAccessFlushTimer.unref();
+  }
+}
+function flushVarAccess() {
+  varAccessFlushTimer = null;
+  if (!varAccessPending.length) return;
+  const batch = varAccessPending.splice(0);
+  const stmt = db.prepare('INSERT INTO variable_access_logs (var_name, key_id, ip, result) VALUES (?, ?, ?, ?)');
+  for (const r of batch) {
+    try { stmt.run(r.varName, r.keyId || null, r.ip, r.result); } catch (_) {}
+  }
+}
+process.once('beforeExit', flushVarAccess);
+process.once('SIGINT', () => { flushVarAccess(); });
+process.once('SIGTERM', () => { flushVarAccess(); });
+
 const varLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 1200,
+  limit: config.variableRateLimitPerMin,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
 });
@@ -291,7 +334,7 @@ router.post('/variables/get', varLimiter, (req, res) => {
   const acct = resolveVerifyAccount(req);
   if (acct.error) return res.json({ ok: false, code: acct.error, reason: acct.msg });
   const plain = extractKey(req);
-  const kc = checkKey(plain, acct.userId);
+  const kc = checkKey(plain, acct);
   if (!kc.ok) {
     return res.json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
   }
@@ -299,12 +342,17 @@ router.post('/variables/get', varLimiter, (req, res) => {
   if (!name) return res.json({ ok: false, code: 'MISSING_NAME', reason: 'name 必填' });
   if (!VAR_NAME_RE.test(name)) return res.json({ ok: false, code: 'INVALID_NAME', reason: 'name 格式错' });
   if (!keyAllowsScope(kc.meta, name)) {
+    logVarAccess(name, kc.keyId, req, 'scope_forbidden');
     return res.json({ ok: false, code: 'SCOPE_FORBIDDEN', reason: '该 key 无权访问此变量' });
   }
 
   const row = db.prepare('SELECT name, value, description FROM variables WHERE name = ?').get(name);
-  if (!row) return res.json({ ok: false, code: 'NOT_FOUND', reason: '变量不存在' });
+  if (!row) {
+    logVarAccess(name, kc.keyId, req, 'not_found');
+    return res.json({ ok: false, code: 'NOT_FOUND', reason: '变量不存在' });
+  }
 
+  logVarAccess(name, kc.keyId, req, 'ok');
   res.json({ ok: true, name: row.name, value: row.value, description: row.description || null });
 });
 
@@ -315,7 +363,7 @@ router.post('/variables/multi', varLimiter, (req, res) => {
   const acct = resolveVerifyAccount(req);
   if (acct.error) return res.json({ ok: false, code: acct.error, reason: acct.msg });
   const plain = extractKey(req);
-  const kc = checkKey(plain, acct.userId);
+  const kc = checkKey(plain, acct);
   if (!kc.ok) {
     return res.json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
   }
@@ -357,7 +405,7 @@ router.post('/variables/group', varLimiter, (req, res) => {
   const acct = resolveVerifyAccount(req);
   if (acct.error) return res.json({ ok: false, code: acct.error, reason: acct.msg });
   const plain = extractKey(req);
-  const kc = checkKey(plain, acct.userId);
+  const kc = checkKey(plain, acct);
   if (!kc.ok) {
     return res.json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
   }
@@ -399,12 +447,16 @@ router.post('/variables/list', varLimiter, (req, res) => {
   const acct = resolveVerifyAccount(req);
   if (acct.error) return res.json({ ok: false, code: acct.error, reason: acct.msg });
   const plain = extractKey(req);
-  const kc = checkKey(plain, acct.userId);
+  const kc = checkKey(plain, acct);
   if (!kc.ok) {
     return res.json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
   }
   const rows = db.prepare('SELECT name, description FROM variables ORDER BY id ASC').all();
-  res.json({ ok: true, items: rows });
+  const allowedNames = keyAllowsAnyScope(kc.meta, rows.map(r => r.name));
+  const allowedSet = new Set(allowedNames);
+  const items = rows.filter(r => allowedSet.has(r.name));
+  const forbidden = rows.map(r => r.name).filter(n => !allowedSet.has(n));
+  res.json({ ok: true, items, forbidden });
 });
 
 module.exports = router;

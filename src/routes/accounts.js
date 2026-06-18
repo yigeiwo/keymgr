@@ -157,14 +157,17 @@ function canAccessAccount(req, userId) {
 router.get('/', authMiddleware, (req, res) => {
   const me = req.user;
   const includeDeleted = req.query.includeDeleted === '1';
-  const base = `
+  const conds = [];
+  const args = [];
+  if (!includeDeleted) conds.push('deleted_at IS NULL');
+  if (me.role !== 'admin') { conds.push('id = ?'); args.push(me.id); }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+  const rows = db.prepare(`
     SELECT id, username, display_name, role, disabled, created_at, deleted_at
     FROM users
-    ${includeDeleted ? '' : 'WHERE deleted_at IS NULL'}
-  `;
-  const rows = (me.role === 'admin')
-    ? db.prepare(base + ' ORDER BY id ASC').all()
-    : db.prepare(base + ' AND id = ? ORDER BY id ASC').all(me.id);
+    ${where}
+    ORDER BY id ASC
+  `).all(...args);
 
   const items = rows.map(u => ({
     id: u.id,
@@ -220,6 +223,10 @@ router.get('/:id/main-key', authMiddleware, (req, res) => {
   const { currentPlain } = readPlain(row);
   if (wasJustCreated) {
     audit({ req, action: 'AUTO_CREATE_MAIN_KEY', targetType: 'account', targetId: u.id, targetName: u.username, details: { keyId: row.id, prefix: row.prefix, reason: 'no_main_key' } });
+  }
+  // 审计：记录查看主 Key 明文操作
+  if (!wasJustCreated) {
+    audit({ req, action: 'VIEW_MAIN_KEY', targetType: 'account', targetId: u.id, targetName: u.username, details: { keyId: row.id, prefix: row.prefix } });
   }
   return ok(res, {
     accountId: u.id,
@@ -411,7 +418,7 @@ router.post('/', authMiddleware, requireRole('admin'), (req, res) => {
       prefix: mainKey.prefix,
       enabled: true,
       expiresAt: null,
-      createdAt: mainKey.meta ? null : null, // summary 不含 createdAt；下面用单独字段
+      createdAt: null,
       lastUsedAt: null,
       plain: mainKey.plain,                  // 主 Key 明文：仅此刻返回，请立即保存
       warning: '主 Key 明文仅在创建瞬间返回一次，请立即复制并安全交付给该账号；之后只能刷新（旧的会失效）。',
@@ -475,6 +482,62 @@ router.delete('/:id', authMiddleware, requireRole('admin'), (req, res) => {
     sessionsRevoked: sessionCount,
     message: `已软删账号 ${u.username}（主 Key + ${keyCount} 个普通 key 一起软删，${sessionCount} 个 session 已撤销）`,
   });
+});
+
+/**
+ * PATCH /api/accounts/:id
+ * 编辑账号属性：显示名、角色、启用/停用
+ * 仅 admin 可调用
+ */
+router.patch('/:id', authMiddleware, requireRole('admin'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const u = db.prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL').get(id);
+  if (!u) return err(res, 404, 'NOT_FOUND', '账号不存在');
+
+  // 不允许修改主 admin 的角色
+  const mainAdminId = getDefaultAdminId();
+  if (u.id === mainAdminId && req.body.role && req.body.role !== 'admin') {
+    return err(res, 400, 'CANNOT_DEMOTE_MAIN_ADMIN', '主 admin 角色不可降级');
+  }
+
+  const sets = [];
+  const params = [];
+
+  if (req.body.displayName !== undefined) {
+    const dn = String(req.body.displayName || '').trim().slice(0, 64) || null;
+    sets.push('display_name = ?');
+    params.push(dn);
+  }
+  if (req.body.role !== undefined) {
+    if (!ROLES.includes(req.body.role)) return err(res, 400, 'INVALID_ROLE', `角色必须是 ${ROLES.join('/')}`);
+    sets.push('role = ?');
+    params.push(req.body.role);
+  }
+  if (req.body.disabled !== undefined) {
+    const dis = !!req.body.disabled;
+    sets.push('disabled = ?');
+    params.push(dis ? 1 : 0);
+    // 启用时顺便清除 deleted_at（如果有的话）
+    if (!dis && u.deleted_at) {
+      sets.push('deleted_at = NULL');
+    }
+  }
+
+  if (!sets.length) return err(res, 400, 'NO_FIELDS', '没有需要更新的字段');
+
+  params.push(id);
+  db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+
+  audit({
+    req,
+    action: 'PATCH_ACCOUNT',
+    targetType: 'account',
+    targetId: id,
+    targetName: u.username,
+    details: { fields: sets.map(s => s.split(' = ')[0].trim()) },
+  });
+
+  return ok(res, { id, message: '已更新' });
 });
 
 module.exports = router;

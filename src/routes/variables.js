@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authMiddleware } = require('../auth');
+const { authMiddleware, requireRole } = require('../auth');
 const { audit } = require('../audit');
 
 function ok(res, data) { return res.json({ ok: true, ...data }); }
@@ -96,6 +96,70 @@ router.get('/group/:name', authMiddleware, (req, res) => {
     count: rows.length,
     items: rows.map(r => ({ name: r.name, value: r.value, description: r.description || null })),
   });
+});
+
+// ====== 变量热度统计 ======
+// GET /api/variables/stats?days=30
+// 注意：必须在 /:id 之前注册，否则 "stats" 会被当作 id
+router.get('/stats', authMiddleware, requireRole('admin'), (req, res) => {
+  const days = Math.max(1, Math.min(90, parseInt(req.query.days, 10) || 30));
+  const sinceStr = new Date(Date.now() - days * 24 * 3600 * 1000)
+    .toISOString().replace('T', ' ').replace(/\..+/, '');
+
+  // 检查表是否存在（兼容未迁移的老库）
+  let rows;
+  try {
+    rows = db.prepare(`
+      SELECT var_name, result, COUNT(*) AS count,
+             MAX(created_at) AS last_access
+      FROM variable_access_logs
+      WHERE created_at >= ?
+      GROUP BY var_name, result
+    `).all(sinceStr);
+  } catch (e) {
+    return ok(res, { days, items: [], message: '变量访问日志表尚未创建，请重启服务以应用迁移' });
+  }
+
+  // 聚合
+  const map = new Map();
+  for (const r of rows) {
+    let item = map.get(r.var_name);
+    if (!item) {
+      item = { name: r.var_name, total: 0, ok: 0, fail: 0, lastAccess: null };
+      map.set(r.var_name, item);
+    }
+    item.total += r.count;
+    if (r.result === 'ok') item.ok += r.count; else item.fail += r.count;
+    if (r.last_access && (!item.lastAccess || r.last_access > item.lastAccess)) item.lastAccess = r.last_access;
+  }
+
+  // 补变量的描述信息
+  const varNames = [...map.keys()];
+  const varInfo = new Map();
+  if (varNames.length) {
+    const ph = varNames.map(() => '?').join(',');
+    const varRows = db.prepare(`SELECT name, description, group_name FROM variables WHERE name IN (${ph})`).all(...varNames);
+    for (const v of varRows) varInfo.set(v.name, v);
+  }
+
+  const items = [...map.values()]
+    .sort((a, b) => b.total - a.total)
+    .map(item => ({
+      ...item,
+      description: varInfo.get(item.name)?.description || null,
+      group: varInfo.get(item.name)?.group_name || null,
+      heat: item.total > 1000 ? 'hot' : item.total > 100 ? 'warm' : item.total > 0 ? 'cool' : 'idle',
+    }));
+
+  // 找出从未被调用过的变量（冷变量）
+  const allVars = db.prepare('SELECT name, description, group_name FROM variables').all();
+  const calledNames = new Set(varNames);
+  const idle = allVars.filter(v => !calledNames.has(v.name)).map(v => ({
+    name: v.name, total: 0, ok: 0, fail: 0, lastAccess: null,
+    description: v.description, group: v.group_name || null, heat: 'idle',
+  }));
+
+  return ok(res, { days, items: [...items, ...idle], total: items.length + idle.length });
 });
 
 // 详情 —— 200 / 404

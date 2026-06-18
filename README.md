@@ -4,6 +4,17 @@
 
 ## 更新日志
 
+### v0.11
+- **UI 全面修复与统一**：
+  - 修复 index.html / app.js / app.css 历史上累积的字符编码损坏（替换字符 `\uFFFD`），全部按钮 / 标签 / 提示文案恢复正常显示
+  - 表格「操作」列与表头 `th` 宽度对齐（230px），避免 5 个动作按钮溢出主框
+  - 「说明」按钮用 CSS class `is-open` 切换，chevron 图标通过 `transform: rotate(180deg)` 旋转，替代之前的 `▴/▾` 文本
+  - 「自动清理」状态从 disabled `<button>` 改为 `status-pill`（带时钟 SVG），消除歧义
+  - Keys / 变量 / 日志空状态改为可点击的「新建」按钮 + SVG 图标，零数据时一键打开对应弹窗
+  - Sidebar 导航 / 主题切换 / 文档区 doc-hero 的几何装饰 + 渐变 mesh 全部以 SVG 替代 emoji，跨平台一致
+  - 全部操作类图标统一通过 `ICO.*` 常量注入，避免散落的 emoji 字符
+  - 浮层（tag / owner / group picker）继续走 `position:fixed` 定位，避免被 `modal-card` 的 `overflow:auto` 裁切
+
 ### v0.10（当前）
 - **历史 Key 不可调用**：`POST /api/keys/:id/reroll` 重置时同步覆盖 `original_plain`，旧明文在数据库里彻底消失（业务侧 verify 本来就走 hash 匹配，现在 DB 层面也无残留）。`GET /api/keys/:id/plain` 不再返回 `originalPlain` / `isOriginal`。
 - **「复制原 key」功能下线**：UI 去掉「🗝 复制原 key」按钮；「账号主 Key」弹窗不再展示「原始 Key」区域。明文只活在「当前有效」这一刻。
@@ -35,7 +46,7 @@
 - **对外验证默认走 admin 账号**：业务侧调 `/v1/verify` 时可显式传 `account` / `ownerUserId` 切到其他账号
 - 支持 **导入已有 Key**（OpenAI、Anthropic、其他系统签发的都可纳入管理）
 - 支持 **自定义前缀**（2~24 字符，可包含字母数字和 `_-`）
-- **明文持久存于数据库**：创建/导入/重置时更新 `current_plain`（仅本机访问）
+- **当前明文可恢复**：创建/导入/重置时保存 SHA-256 哈希，并用 AES-256-GCM 加密保存 `current_plain`（仅授权接口可解密返回）
 - **变量库**：按 `name` 存取值（连接串、API key、灰度开关等），业务侧通过 key 鉴权后按 name 取值
 - **变量分组**（v0.9 起）：给变量打 `group_name` 标签，业务侧可用 `POST /v1/variables/group` 一次性取走一个分组下所有 name/value
 - **多用户 + 三角色**：admin（全权） / operator（读写，不可管用户） / viewer（只读）
@@ -46,7 +57,10 @@
 - 增强的 `/healthz`：db 状态、活跃会话、内存、版本、P95/P99 响应时间
 - 响应时间埋点：滑动窗口 P50/P95/P99
 - 告警 Webhook：短时间内大量失败验证 → POST 到你指定的 URL（钉钉 / Slack / 飞书 / 自建都行）
+- **验证统计面板**：日志页展示成功率、失败原因 Top、每日趋势、活跃 Key 与来源 IP
+- **Key 健康诊断**：按状态、过期时间、最近失败率和使用情况生成健康评分与排查建议
 - 一键备份：`npm run backup` 把 db + 最近 7 天日志打 tar.gz
+- **SESSION_SECRET 轮换脚本**：`npm run reencrypt` 可将 DB 内密文重新加密到新密钥
 - 暗色主题：顶栏一键切换，localStorage 记忆，跟随系统
 - 语义化 HTTP 状态码（200/400/401/403/404/409/422/429/503）
 - 内置限流：登录失败 5/10min 锁 15min；验证 600/min/IP；变量 1200/min/IP
@@ -60,13 +74,15 @@ keymgr/
 │   ├── config.js      # 配置（读 .env）
 │   ├── db.js          # SQLite 初始化、迁移、默认管理员
 │   ├── auth.js        # 登录、会话、Cookie、角色
-│   ├── keys.js        # Key 生成 / 导入 / 重置 / 明文存储
+│   ├── keys.js        # Key 生成 / 导入 / 重置 / 加密明文存储
 │   ├── crypto.js      # AES-256-GCM 加密
+│   ├── diagnostics.js # 失败原因库 + Key 健康评分
 │   ├── metrics.js     # 滑动窗口 P95/P99 指标
 │   ├── alerts.js      # Webhook 告警
 │   ├── logger.js      # 日志（控制台 + 文件 + 数据库）
 │   ├── audit.js       # 审计日志
 │   ├── backup.js      # npm run backup 命令
+│   ├── reencrypt.js   # SESSION_SECRET 轮换重加密脚本
 │   └── routes/
 │       ├── auth.js    # /api/auth/*
 │       ├── keys.js    # /api/keys/* CRUD + 编辑
@@ -115,9 +131,9 @@ echo "ADMIN_PASSWORD=NewP@ssw0rd!Aa1" >> .env
 npm start
 # 启动时会自动用新密码覆盖那个账号
 
-# 方式 2：用项目自带的脚本（接收新密码作为参数）
-node src/reset-admin.js 'NewP@ssw0rd!Aa1'
-# 输出：admin 密码已重置为： NewP@ssw0rd!Aa1
+# 方式 2：用项目自带的脚本（会备份 DB、撤销该账号 sessions，不回显新密码）
+npm run reset-admin -- 'NewP@ssw0rd!Aa1'
+npm run reset-admin -- --username admin 'NewP@ssw0rd!Aa1'
 ```
 
 **子账号**：admin 登录后到「账号管理」页面 → 「+ 新建子账号」，可创建 `operator` / `viewer` / `admin` 角色；创建时 admin 设置初始密码（≥ 8 字符），账号创建后系统会一并生成该账号的「主 Key」明文（弹窗一次性展示，请立即复制保存）。
@@ -129,11 +145,22 @@ node src/reset-admin.js 'NewP@ssw0rd!Aa1'
 ### 备份
 
 ```bash
+npm run check             # 语法检查主要后端脚本与前端 JS
 npm run backup            # 备份 db + 最近 7 天日志
 npm run backup -- 30      # 备份 db + 最近 30 天日志
 # 备份文件：./backups/keymgr-backup-YYYYMMDD-HHmmss.tar.gz
+# 若系统无 tar，会降级输出 .bundle.gz（非 tar 格式）
 # 自动保留最近 30 份（可调 BACKUP_KEEP 环境变量）
 ```
+
+### SESSION_SECRET 重加密
+
+```bash
+npm run reencrypt -- --from OLD_SECRET --to NEW_SECRET --dry-run  # 预演
+npm run reencrypt -- --from OLD_SECRET --to NEW_SECRET            # 执行轮换
+```
+
+脚本会扫描 `api_keys.current_plain` / `original_plain`，用旧 `SESSION_SECRET` 解密后用新值重新加密；执行前会先验证所有目标密文，任一解密失败都会中止且不写盘。验证通过后默认备份 `data/keymgr.db` 到 `.bak-时间戳`，执行时请先停止正在运行的服务。
 
 ### 健康检查 / 指标
 
@@ -187,7 +214,7 @@ curl -X POST http://keymgr:3000/v1/verify \
 
 老库（`owner_user_id IS NULL` 的历史 key）会被当作 admin 账号所有，兼容行为不变。
 
-**安全性**：默认走 admin 账号可避免「一个 service 拿到的 key 被另一个账号 import 后误通过」。如果业务侧需要跨账号访问，传 `account` 显式指定即可。`/v1/variables/get|list|multi` 同样适用该规则。
+**安全性**：默认走 admin 账号可避免「一个 service 拿到的 key 被另一个账号 import 后误通过」。如果业务侧需要跨账号访问，传 `account` 显式指定即可。`/v1/variables/get|list|multi|group` 同样适用该规则。
 
 完整文档见 Dashboard 的「API 文档」标签页。
 
@@ -197,6 +224,7 @@ curl -X POST http://keymgr:3000/v1/verify \
 |---|---|---|
 | POST | `/api/auth/login` | 登录，返回 cookie |
 | POST | `/api/auth/logout` | 注销 |
+| POST | `/api/auth/change-password` | 修改自己的密码（保留当前会话，撤销其它 sessions） |
 | GET  | `/api/users/me/info` | 当前用户 |
 | GET  | `/api/keys?q=&tag=&owner=&ownerUserId=&account=&includeMain=` | 列表 + 搜索 + 账号过滤（admin 才能跨账号；主 Key 默认不出现，admin 可加 `includeMain=1` 列出；`tag` 支持单值或逗号分隔多值精确匹配） |
 | GET  | `/api/keys/tags` | 标签清单 + 计数（按字母排序，与 `/api/variables/groups` 对齐） |
@@ -204,6 +232,7 @@ curl -X POST http://keymgr:3000/v1/verify \
 | GET  | `/api/keys/tag/:name` | 按标签取 key（与 `/api/variables/group/:name` 对齐） |
 | GET  | `/api/keys/:id` | 详情（不含明文） |
 | GET  | `/api/keys/:id/plain` | **拿明文**（仅当前有效 key；重置后旧明文历史不可拿回） |
+| GET  | `/api/keys/:id/health?days=7` | Key 健康诊断（评分、风险等级、最近失败率与排查建议） |
 | POST | `/api/keys` | 新建（自动生成 / 导入；支持 owner / tags / ownerUserId） |
 | GET  | `/api/accounts` | 账号列表（admin 全量，其他只看自己；admin 加 `?includeDeleted=1` 列出已软删） |
 | GET  | `/api/accounts/:id` | 账号详情（含主 Key 摘要） |
@@ -221,11 +250,12 @@ curl -X POST http://keymgr:3000/v1/verify \
 | GET  | `/api/variables?group=<name>` | 变量列表（`group` 可选：填分组名过滤；`__null__` 仅看未分组） |
 | GET  | `/api/variables/groups` | 所有分组名 + 计数 |
 | GET  | `/api/variables/group/:name` | 按分组批量取（管理端用） |
+| GET  | `/api/variables/:id` | 变量详情 |
 | POST | `/api/variables` | 新建变量（支持 `group` 字段） |
 | PATCH| `/api/variables/:id` | 改值 / 改描述 / 改分组 |
 | DELETE | `/api/variables/:id` | 删除变量 |
 | GET  | `/api/logs` | 验证日志查询 |
-| GET  | `/api/logs/stats` | 验证统计 |
+| GET  | `/api/logs/stats?days=7&keyId=` | 验证统计（成功率、失败原因、每日趋势、活跃 Key、来源 IP） |
 | GET  | `/api/audit` | 审计日志 |
 | GET  | `/api/users` | 用户列表（admin） |
 | POST | `/api/users` | 创建用户（admin） |
@@ -233,6 +263,23 @@ curl -X POST http://keymgr:3000/v1/verify \
 | DELETE | `/api/users/:id` | 删用户（admin） |
 | GET  | `/api/metrics` | 指标快照（admin） |
 | GET  | `/healthz` | 健康检查（公开） |
+
+### 验证统计与诊断
+
+`GET /api/logs/stats?days=7` 会聚合最近 N 天的 `verify_logs`：
+
+- `totals`：成功 / 失败 / 总量 / 成功率
+- `topReasons`：失败原因 Top，并附带中文解释与排查建议
+- `byDay`：按天分桶的 ok/fail 趋势，Dashboard 日志页会渲染成小柱状图
+- `topKeys`：最活跃 Key Top 10
+- `topIps`：调用来源 IP Top 10，用来发现异常来源
+
+`GET /api/keys/:id/health?days=7` 会对单个 Key 生成健康评分：
+
+- 硬性状态：软删、停用、已过期直接判为高风险
+- 过期临近度：1 天 / 7 天 / 30 天分级提示
+- 最近失败率：结合 `verify_logs` 的 ok/fail 比例扣分
+- 使用活跃度：长期未调用、长期未轮换会给出提醒
 
 ### 对外变量 API（业务服务调用）
 
@@ -317,7 +364,7 @@ migrations/
 - 读取 `migrations/` 下所有 `NNNN_*.sql` 按版本号升序
 - 跟 `schema_version` 表对比，没跑过的就执行
 - 跑完一条写一行 `schema_version` 记录
-- **老库自动 baseline**：如果已有 `users` 表但没有 `schema_version`，会直接标记为最高版本（8），不重跑历史迁移
+- **老库自动 baseline**：如果已有 `users` 表但没有 `schema_version`，会直接标记为 `migrations/` 当前最高版本，不重跑历史迁移
 - **主 Key 回填**：每次启动时为「无主 Key 的账号」自动补建 1 个；新用户由 `POST /api/users` / `POST /api/accounts` 在创建时同步建
 
 **新增迁移**：
@@ -335,7 +382,7 @@ SQL
 
 | 字段 | 含义 | 创建时 | 重置时 | 删除时 |
 |---|---|---|---|---|
-| `current_plain`  | 当前有效 key（**唯一会明文存在的字段**） | = 新明文 | = 新明文 | 行没了 |
+| `current_plain`  | 当前有效 key 的 AES-GCM 密文（解密后才是明文） | = 新明文加密 | = 新明文加密 | 行没了 |
 | `hash`           | SHA-256(current_plain) | 算 | 重新算 | 行没了 |
 | `owner`          | 负责人/团队（≤64 字符） | 可选 | 保留 | 行没了 |
 | `tags`           | 标签数组（≤20 项 × ≤32 字符，JSON 字符串） | 可选 | 保留 | 行没了 |
@@ -348,11 +395,11 @@ SQL
 
 ## 角色权限
 
-| 角色 | 读 keys | 写 keys | 读/写 variables | 读 logs/audit | 管 users | 看 metrics |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|
-| admin | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| operator | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ |
-| viewer | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ |
+| 角色 | 读 keys | 写 keys | 读/写 variables | 读 logs | 读 audit | 管 users | 看 metrics |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| admin | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| operator | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| viewer | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 
 ## 按账号归属（owner_user_id）
 
@@ -585,7 +632,7 @@ server {
 
 两种方式任选：
 
-1. **应用级**：`npm run backup`（推荐）—— 把 db + 最近 7 天日志打 tar.gz 到 `./backups/`，自动保留 30 份
+1. **应用级**：`npm run backup`（推荐）—— 把 db + 最近 7 天日志打 tar.gz 到 `./backups/`，自动保留 30 份；无系统 `tar` 时降级为 `.bundle.gz`
 2. **系统级**：cron 拷贝 `data/keymgr.db` 到备份目录（注意要先 `sqlite3 .backup` 再拷，避免文件被锁）
 
 ## 告警 Webhook
@@ -620,13 +667,24 @@ ALERT_COOLDOWN_MS=300000        # 同一告警冷却（避免刷屏）
 
 ## 密钥轮换
 
-如果你想换 `SESSION_SECRET`（比如怀疑泄露），但又不想丢历史 key 的明文：
+如果你想换 `SESSION_SECRET`（比如怀疑泄露），但又不想丢历史 key 的明文，可以用内置脚本重加密数据库密文：
 
-1. 用旧 secret 启动一次：`SESSION_SECRET=old node src/server.js`
-2. 写个一次性脚本把 `api_keys` 里所有 `current_plain` 解密再加密
-3. 停服，把 `data/keymgr.db` 拷走，改 `.env` 的 `SESSION_SECRET=new`
-4. 重启 —— 历史 key 都能正常解密
-5. 没有这个迁移脚本之前，**改 SESSION_SECRET 会导致历史 key 的明文无法读取**（hash 不受影响，业务侧仍可验证）
+```bash
+# 1) 先停服，避免 DB 文件并发写入
+# 2) 预演：检查能否用旧 secret 正常解密
+npm run reencrypt -- --from "old-secret" --to "new-secret" --dry-run
+
+# 3) 正式执行：脚本会自动备份 data/keymgr.db
+npm run reencrypt -- --from "old-secret" --to "new-secret"
+
+# 4) 修改 .env
+# SESSION_SECRET=new-secret
+
+# 5) 重启并验证
+npm start
+```
+
+脚本只会重写 `api_keys.current_plain` / `original_plain` 两列，不会修改 `hash`、用户密码或其它表。若出现解密失败，请优先确认 `--from` 是否为旧的 `SESSION_SECRET`；脚本会直接中止且不写盘，只有全部目标密文可解密时才会备份并写回。
 
 ## 性能与运维细节
 
@@ -659,7 +717,7 @@ ALERT_COOLDOWN_MS=300000        # 同一告警冷却（避免刷屏）
 
 ## 安全注意
 
-- 务必修改 `.env` 中的 `SESSION_SECRET` 和 `ADMIN_PASSWORD`
+- 务必修改 `.env` 中的 `SESSION_SECRET` 和 `ADMIN_PASSWORD`；生产环境使用默认 `SESSION_SECRET` 会拒绝启动
 - 生产环境**必须**套 HTTPS（Cloudflare / Nginx + Let's Encrypt 都行）
 - 数据库文件 `data/keymgr.db` 包含 AES 加密后的明文，文件权限务必收紧（`chmod 600`）
 - 登录限流是按 IP 的，多人共享出口 IP 时调高 `LOGIN_FAIL_MAX`

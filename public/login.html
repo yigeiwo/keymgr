@@ -7,18 +7,30 @@
   <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body class="auth">
+  <div class="auth-glow"></div>
   <main class="auth-card">
-    <h1>KeyMgr</h1>
-    <p class="muted">轻量级 Key 管理与验证</p>
+    <div class="auth-brand">
+      <div class="sidebar-brand-icon">K</div>
+      <div>
+        <h1>KeyMgr</h1>
+        <p class="muted auth-sub">轻量级 Key 管理与验证系统</p>
+      </div>
+    </div>
     <form id="login-form">
-      <label>用户名 <input name="username" autocomplete="username" required></label>
-      <label>密码 <input name="password" type="password" autocomplete="current-password" required></label>
-      <button type="submit">登录</button>
+      <label>
+        <span class="auth-label">用户名</span>
+        <input name="username" autocomplete="username" required placeholder="请输入用户名" />
+      </label>
+      <label>
+        <span class="auth-label">密码</span>
+        <input name="password" type="password" autocomplete="current-password" required placeholder="请输入密码" />
+      </label>
+      <button type="submit" id="login-btn">登录</button>
       <p class="err" id="err"></p>
     </form>
-    <div style="text-align:center;margin-top:12px;">
-      <button id="theme-toggle-login" class="ghost" title="切换暗色主题" aria-label="切换主题" style="font-size:12px;">
-        <span class="theme-icon">🌙</span> 切换主题
+    <div class="auth-foot">
+      <button id="theme-toggle-login" class="ghost" title="切换暗色主题" aria-label="切换主题">
+        <span class="theme-icon"></span> 切换主题
       </button>
     </div>
   </main>
@@ -26,10 +38,13 @@
     // 暗色主题
     (function() {
       var THEME_KEY = 'km_theme';
+      var ICO_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
+      var ICO_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
       function applyTheme(t) {
         document.documentElement.setAttribute('data-theme', t);
-        var icon = document.querySelector('.theme-icon');
-        if (icon) icon.textContent = t === 'dark' ? '☀️' : '🌙';
+        document.querySelectorAll('.theme-icon').forEach(function(icon) {
+          icon.innerHTML = t === 'dark' ? ICO_SUN : ICO_MOON;
+        });
       }
       var t = localStorage.getItem(THEME_KEY);
       if (!t) t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
@@ -47,9 +62,9 @@
       var fd = new FormData(e.target);
       var err = document.getElementById('err');
       err.textContent = '';
-      var btn = e.target.querySelector('button[type="submit"]');
+      var btn = document.getElementById('login-btn');
       btn.disabled = true;
-      btn.textContent = '登录中…';
+      btn.innerHTML = '<span class="login-spinner"></span> 登录中…';
       try {
         var res = await fetch('/api/auth/login', {
           method: 'POST',
@@ -73,5 +88,19 @@
       }
     });
   </script>
+  <style>
+    .login-spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .auth-foot .ghost { font-size: 12px; }
+    .auth-foot .ghost svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  </style>
 </body>
 </html>

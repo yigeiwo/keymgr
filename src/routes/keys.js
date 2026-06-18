@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { generateKey, importKey, rerollKey, readPlain } = require('../keys');
 const { audit } = require('../audit');
+const { scoreKeyHealth } = require('../diagnostics');
 
 const router = express.Router();
 
@@ -315,10 +316,55 @@ router.get('/:id/plain', (req, res) => {
   // 历史 key 不可调用：只返回当前有效明文，不再返回 originalPlain。
   // 业务侧 verify 仍走 hash 匹配，重置过的 key 历史值已不匹配。
   const { currentPlain } = readPlain(row);
+  // 审计：记录查看明文操作
+  audit({ req, action: 'VIEW_KEY_PLAIN', targetType: 'key', targetId: row.id, targetName: row.name });
   return ok(res, {
     id: row.id,
     name: row.name,
     currentPlain,
+  });
+});
+
+/**
+ * GET /api/keys/:id/health
+ *
+ * 单 Key 健康诊断：基于 key 状态 + 最近 N 天验证日志，给一个 0~100 分 + 风险等级 + 问题清单。
+ *   - 综合维度：停用/过期/软删（致命）、过期临近度、最近失败率、长期未用、长期未轮换
+ *   - issues 里每条带 reason 解释（复用失败原因库），方便前端直接展示排查建议
+ *
+ * Query: days 默认 7（统计失败率用的窗口）
+ */
+router.get('/:id/health', (req, res) => {
+  const row = db.prepare(`
+    SELECT k.id, k.name, k.prefix, k.enabled, k.expires_at, k.created_at, k.last_used_at, k.deleted_at,
+           k.owner_user_id, k.is_default
+    FROM api_keys k WHERE k.id = ?
+  `).get(req.params.id);
+  if (!row) return err(res, 404, 'NOT_FOUND', 'key 不存在');
+  if (!canActOnKey(req, row)) return err(res, 403, 'FORBIDDEN', '无权查看此 key');
+
+  const days = Math.max(1, Math.min(90, parseInt(req.query.days, 10) || 7));
+  const sinceStr = new Date(Date.now() - days * 24 * 3600 * 1000)
+    .toISOString().replace('T', ' ').replace(/\..+/, '');
+
+  // 该 key 最近 N 天的 ok/fail 计数
+  const statRow = db.prepare(`
+    SELECT
+      SUM(CASE WHEN result = 'ok' THEN 1 ELSE 0 END) AS ok,
+      SUM(CASE WHEN result != 'ok' THEN 1 ELSE 0 END) AS fail
+    FROM verify_logs
+    WHERE key_id = ? AND created_at >= ?
+  `).get(parseInt(req.params.id, 10), sinceStr);
+  const verifyStat = { ok: statRow?.ok || 0, fail: statRow?.fail || 0 };
+
+  const health = scoreKeyHealth(row, verifyStat);
+
+  return ok(res, {
+    id: row.id,
+    name: row.name,
+    days,
+    verifyStat,
+    health,
   });
 });
 
@@ -572,6 +618,174 @@ router.delete('/:id/purge', (req, res) => {
   if (!r.changes) return err(res, 404, 'NOT_FOUND', 'key 不存在');
   audit({ req, action: 'PURGE_KEY', targetType: 'key', targetId: id, targetName: row?.name });
   return ok(res, { message: '已永久删除' });
+});
+
+/**
+ * GET /api/keys/:id/timeline
+ *
+ * Key 时间轴：以单个 Key 为视角，从审计日志 + verify_logs 中聚合所有事件，
+ * 按时间降序排列，形成完整生命周期视图。
+ */
+router.get('/:id/timeline', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const row = db.prepare('SELECT id, name, prefix, owner_user_id, is_default FROM api_keys WHERE id = ?').get(id);
+  if (!row) return err(res, 404, 'NOT_FOUND', 'key 不存在');
+  if (!canActOnKey(req, row)) return err(res, 403, 'FORBIDDEN', '无权查看此 key');
+
+  const events = [];
+
+  // 1) 从审计日志中找相关事件
+  const auditRows = db.prepare(`
+    SELECT action, details, ip, user_agent, created_at
+    FROM audit_logs
+    WHERE target_type = 'key' AND target_id = ?
+    ORDER BY id ASC
+  `).all(id);
+  for (const a of auditRows) {
+    let details = null;
+    try { if (a.details) details = JSON.parse(a.details); } catch (_) {}
+    events.push({
+      type: 'audit',
+      action: a.action,
+      details,
+      ip: a.ip,
+      userAgent: a.user_agent,
+      time: a.created_at,
+    });
+  }
+
+  // 2) 从 verify_logs 中聚合每天的成功/失败计数（最近 30 天，按天分桶）
+  const sinceStr = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+    .toISOString().replace('T', ' ').replace(/\..+/, '');
+  const verifyRows = db.prepare(`
+    SELECT
+      DATE(created_at) AS day,
+      SUM(CASE WHEN result = 'ok' THEN 1 ELSE 0 END) AS ok,
+      SUM(CASE WHEN result != 'ok' THEN 1 ELSE 0 END) AS fail
+    FROM verify_logs
+    WHERE key_id = ? AND created_at >= ?
+    GROUP BY DATE(created_at)
+    ORDER BY day DESC
+  `).all(id, sinceStr);
+  for (const v of verifyRows) {
+    events.push({
+      type: 'verify_summary',
+      day: v.day,
+      ok: v.ok || 0,
+      fail: v.fail || 0,
+      time: v.day + ' 00:00:00',
+    });
+  }
+
+  // 按时间降序
+  events.sort((a, b) => b.time.localeCompare(a.time));
+
+  return ok(res, {
+    id: row.id,
+    name: row.name,
+    prefix: row.prefix,
+    events,
+  });
+});
+
+/**
+ * POST /api/keys/:id/check
+ *
+ * 第三方 Key 有效性检测：用 key 的明文去调目标服务的「验证接口」，
+ * 判断 key 在目标平台上是否仍然有效。
+ *
+ * 需要在 Key 的 meta 中配置检测规则：
+ *   meta.checkUrl: 目标服务验证接口 URL
+ *   meta.checkMethod: GET 或 POST（默认 GET）
+ *   meta.checkHeader: 传 key 的 header 名（默认 Authorization）
+ *   meta.checkPrefix: header 前缀（默认 "Bearer "）
+ *   meta.checkBodyKey: 如果 POST，body 中 key 字段名（可选，优先用 header）
+ *   meta.checkValidField: 响应 JSON 中判断有效性的字段路径（默认 "valid"）
+ *   meta.checkValidValue: 有效时的字段值（默认 true）
+ */
+router.post('/:id/check', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const row = db.prepare(`
+    SELECT k.id, k.name, k.current_plain, k.meta, k.enabled, k.expires_at, k.deleted_at, k.owner_user_id
+    FROM api_keys k WHERE k.id = ?
+  `).get(id);
+  if (!row) return err(res, 404, 'NOT_FOUND', 'key 不存在');
+  if (!canActOnKey(req, row)) return err(res, 403, 'FORBIDDEN', '无权操作此 key');
+
+  let meta = null;
+  try { if (row.meta) meta = JSON.parse(row.meta); } catch (_) {}
+  if (!meta || !meta.checkUrl) {
+    return err(res, 400, 'NO_CHECK_CONFIG', '该 Key 未配置检测规则。请在 Key 的 meta 中添加 checkUrl 等字段。');
+  }
+
+  const { readPlain } = require('../keys');
+  const { currentPlain } = readPlain(row);
+  if (!currentPlain) return err(res, 404, 'NO_PLAIN', '无法获取当前 key 明文');
+
+  const checkUrl = meta.checkUrl;
+  const method = (meta.checkMethod || 'GET').toUpperCase();
+  const headerName = meta.checkHeader || 'Authorization';
+  const headerPrefix = meta.checkPrefix != null ? meta.checkPrefix : 'Bearer ';
+  const bodyKey = meta.checkBodyKey || null;
+  const validField = meta.checkValidField || 'valid';
+  const validValue = meta.checkValidValue != null ? meta.checkValidValue : true;
+
+  const start = Date.now();
+  let status = 'unknown';
+  let statusCode = null;
+  let responseBody = null;
+  let isHealthy = false;
+
+  try {
+    const fetchOpts = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    };
+
+    if (bodyKey) {
+      fetchOpts.body = JSON.stringify({ [bodyKey]: currentPlain });
+    } else {
+      fetchOpts.headers[headerName] = headerPrefix + currentPlain;
+    }
+
+    const r = await fetch(checkUrl, fetchOpts);
+    statusCode = r.status;
+    try { responseBody = await r.json(); } catch (_) { responseBody = await r.text().catch(() => null); }
+
+    if (typeof responseBody === 'object' && responseBody !== null) {
+      const fieldVal = validField.split('.').reduce((o, k) => o?.[k], responseBody);
+      isHealthy = fieldVal === validValue;
+    } else {
+      isHealthy = statusCode >= 200 && statusCode < 300;
+    }
+    status = isHealthy ? 'healthy' : 'unhealthy';
+  } catch (e) {
+    status = 'error';
+    responseBody = e.message;
+  }
+
+  const durationMs = Date.now() - start;
+
+  audit({
+    req,
+    action: 'CHECK_KEY_EXTERNAL',
+    targetType: 'key',
+    targetId: id,
+    targetName: row.name,
+    details: { checkUrl, status, statusCode, durationMs, isHealthy },
+  });
+
+  return ok(res, {
+    id,
+    name: row.name,
+    checkUrl,
+    status,
+    isHealthy,
+    statusCode,
+    responseBody: typeof responseBody === 'object' ? responseBody : String(responseBody || '').slice(0, 500),
+    durationMs,
+  });
 });
 
 module.exports = router;

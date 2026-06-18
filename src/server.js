@@ -16,6 +16,7 @@ const verifyRoute = require('./routes/verify');
 const auditRoute = require('./routes/audit');
 const usersRoute = require('./routes/users');
 const accountsRoute = require('./routes/accounts');
+const handoverRoute = require('./routes/handover');
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.use('/api/variables', authMiddleware, (req, res, next) => req.method === 'GE
 app.use('/api/audit',  authMiddleware, auditRoute);
 app.use('/api/users',  authMiddleware, usersRoute);
 app.use('/api/accounts', authMiddleware, accountsRoute);
+app.use('/api/handover', handoverRoute);
 
 // 受保护：首页
 app.get('/', authMiddleware, (_req, res) => {
@@ -102,6 +104,7 @@ app.use((err, _req, res, _next) => {
     log.info(`- 健康检查:    GET  ${config.siteUrl}/healthz`);
     if (alerts.status().enabled) {
       log.info(`- 告警 webhook: 已启用 (阈值 ${alerts.status().threshold}/${alerts.status().windowMs}ms)`);
+      alerts.startExpiryCheck();
     }
   });
 })();

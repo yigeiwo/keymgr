@@ -3,14 +3,15 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { SESSION_COOKIE, createSession, destroySession, verifyCredentials, authMiddleware } = require('../auth');
 const { audit } = require('../audit');
+const config = require('../config');
 
 const router = express.Router();
 
 // ===== 登录失败限流（防爆破）=====
 // 同 IP 在窗口内失败 N 次 → 锁定 T 分钟
-const FAIL_WINDOW_MS = 10 * 60 * 1000; // 10 分钟窗口
-const FAIL_MAX = 5;                    // 窗口内允许 5 次失败
-const LOCK_MS = 15 * 60 * 1000;        // 第 5 次失败后锁 15 分钟
+const FAIL_WINDOW_MS = config.loginFailWindowMs;
+const FAIL_MAX = config.loginFailMax;
+const LOCK_MS = config.loginLockMs;
 const failMap = new Map();             // ip -> { fails, firstAt, lockedUntil }
 function clientIp(req) {
   return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
