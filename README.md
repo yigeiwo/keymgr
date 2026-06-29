@@ -415,8 +415,9 @@ SQL
 **验证端**（`/v1/verify`、`/v1/variables/*`）：
 - 默认校验 `admin` 账号下的 key（`role='admin'` 且未停用，id 最小的那个）
 - 调用方可在 body 传 `account`（username）/ `ownerUserId`（int）/ `ownerUsername`（兼容别名）显式指定其他账号
-- 账号不存在返回 `ACCOUNT_NOT_FOUND`，账号已停用返回 `ACCOUNT_DISABLED`（HTTP 200，业务方按 `valid`/`ok` 判断）
+- 账号不存在返回 `ACCOUNT_NOT_FOUND`，账号已停用返回 `ACCOUNT_DISABLED`（**HTTP 400**，业务方按 `code` 判断）
 - `key_user_id` 跟目标账号不匹配时返回 `NOT_FOUND`（不区分「key 不存在」和「key 不属于此账号」，避免账号枚举）
+- **对外 API 错误码语义**：成功返 200，**所有失败统一返 400**（鉴权失败 / key 不存在 / key 停用 / key 过期 / 变量不存在 / scope 越权 / 分组不存在 等都用 400），用响应体 `code` 字段区分错误类型。设计原则：业务侧写 `if (r.status === 200) ok; else 用 r.body.code 判断具体失败原因`。
 
 **好处**：
 - 不同业务 / 团队用自己的账号管理 key，互不干扰

@@ -85,21 +85,28 @@
           💡 单个 Key 在「账号管理」页 · 明文持久存于数据库（仅本机访问）· <b>复制</b> = 复制当前有效 key；<b>重置</b> = 生成新 key（旧 key 立即失效）。点击表格里的 <code>tag</code> / <code>owner</code> 可直接过滤。
         </div>
       </div>
+      <div class="bulk-bar" id="key-bulk-bar" hidden>
+        <span class="bulk-count">已选 <b id="key-bulk-count">0</b> 项</span>
+        <button class="ghost" data-bulk="clear" type="button">取消选择</button>
+        <button class="ghost" data-bulk="toggle" type="button">启/停</button>
+        <button class="ghost danger" data-bulk="del" type="button">批量删除</button>
+      </div>
       <div class="grid-wrap">
       <table class="grid">
         <thead>
           <tr>
-            <th style="width:40px;">#</th>
-            <th>名称</th>
-            <th data-col="prefix" style="width:90px;">前缀</th>
-            <th style="width:84px;">账号</th>
-            <th style="width:100px;">owner</th>
-            <th class="tags-cell" style="width:160px;">tags</th>
-            <th style="width:64px;">状态</th>
-            <th data-col="time" style="width:110px;">过期</th>
-            <th data-col="time" style="width:110px;">最近使用</th>
-            <th data-col="time" style="width:110px;">创建时间</th>
-            <th style="width:230px;">操作</th>
+            <th style="width:32px;"><input type="checkbox" id="key-check-all" title="全选/取消" aria-label="全选"></th>
+            <th style="width:38px;">#</th>
+            <th style="width:180px;">名称</th>
+            <th data-col="prefix" style="width:84px;">前缀</th>
+            <th style="width:80px;">账号</th>
+            <th style="width:88px;">owner</th>
+            <th class="tags-cell" style="width:130px;">tags</th>
+            <th style="width:60px;">状态</th>
+            <th data-col="time" style="width:96px;">过期</th>
+            <th data-col="time" style="width:96px;">最近使用</th>
+            <th data-col="time" style="width:96px;">创建时间</th>
+            <th style="width:180px;">操作</th>
           </tr>
         </thead>
         <tbody id="keys-tbody"></tbody>
@@ -126,12 +133,12 @@
         <thead>
           <tr>
             <th style="width:48px;">#</th>
-            <th>账号</th>
-            <th data-col="role" style="width:80px;">角色</th>
+            <th style="width:180px;">账号</th>
+            <th data-col="role" style="width:72px;">角色</th>
             <th data-col="status" style="width:64px;">状态</th>
-            <th style="width:180px;">主 Key</th>
-            <th data-col="time" style="width:130px;">主 Key 最近使用</th>
-            <th data-col="time" style="width:130px;">账号创建</th>
+            <th style="width:150px;">主 Key</th>
+            <th data-col="time" style="width:110px;">主 Key 最近使用</th>
+            <th data-col="time" style="width:110px;">账号创建</th>
             <th style="width:180px;">操作</th>
           </tr>
         </thead>
@@ -171,12 +178,12 @@
         <thead>
           <tr>
             <th style="width:44px;">#</th>
-            <th style="width:140px;">name</th>
-            <th>value</th>
-            <th style="width:110px;">分组</th>
-            <th>描述</th>
-            <th style="width:120px;">更新时间</th>
-            <th style="width:150px;">操作</th>
+            <th style="width:180px;">name</th>
+            <th style="width:280px;">value</th>
+            <th style="width:140px;">分组</th>
+            <th style="width:200px;">描述</th>
+            <th style="width:110px;">更新时间</th>
+            <th style="width:140px;">操作</th>
           </tr>
         </thead>
         <tbody id="vars-tbody"></tbody>
@@ -278,13 +285,13 @@
       <table class="grid">
         <thead>
           <tr>
-            <th style="width:130px;">时间</th>
-            <th style="width:60px;">结果</th>
-            <th style="width:140px;">原因</th>
-            <th data-col="prefix" style="width:130px;">前缀</th>
-            <th data-col="ip" style="width:110px;">IP</th>
+            <th style="width:116px;">时间</th>
+            <th style="width:58px;">结果</th>
+            <th style="width:120px;">原因</th>
+            <th data-col="prefix" style="width:110px;">前缀</th>
+            <th data-col="ip" style="width:100px;">IP</th>
             <th>UA</th>
-            <th style="width:80px;" class="num">耗时(ms)</th>
+            <th style="width:76px;" class="num">耗时(ms)</th>
           </tr>
         </thead>
         <tbody id="logs-tbody"></tbody>
@@ -299,12 +306,12 @@
           <div class="doc-hero-text">
             <span class="eyebrow">API Reference</span>
             <h2>KeyMgr 接口文档</h2>
-            <p>两类接口：<b>对外验证</b> <code class="inline">POST /v1/verify</code>（业务服务调用） · <b>后台管理</b> <code class="inline">/api/*</code>（需登录）。</p>
+            <p>两类接口：<b>对外验证</b> <code class="inline">POST /v1/verify</code>（业务服务调用） · <b>后台管理</b> <code class="inline">/api/*</code>（需登录）。<b>生产环境必须 HTTPS</b>（见「系统」标签页的反代配置）。</p>
           </div>
           <div class="doc-hero-meta">
-            <div><span>Base</span><code>http://your-host:3000</code></div>
+            <div><span>Base</span><code>https://keymgr.example.com</code></div>
             <div><span>Storage</span><code>SQLite (sql.js)</code></div>
-            <div><span>Auth</span><code>Cookie (HttpOnly, SameSite=Lax)</code></div>
+            <div><span>Auth</span><code>Cookie (HttpOnly, SameSite=Lax, Secure)</code></div>
             <div><span>Rate limit</span><code>verify 600/min · var 1200/min</code></div>
           </div>
         </header>
@@ -312,14 +319,10 @@
         <!-- 顶部子导航 -->
         <div class="doc-subtabs" data-tabs>
           <div class="code-tab-bar">
-            <button data-pane="v" class="active">对外验证 API</button>
-            <button data-pane="va">对外变量 API</button>
-            <button data-pane="a">认证 & 用户</button>
-            <button data-pane="k">Key 管理</button>
-            <button data-pane="va2">变量管理</button>
-            <button data-pane="l">日志</button>
-            <button data-pane="s">状态码 & 错误</button>
-            <button data-pane="sm">系统 & 监控</button>
+            <button data-pane="v" class="active">对外验证</button>
+            <button data-pane="va">对外变量</button>
+            <button data-pane="admin">后台管理</button>
+            <button data-pane="sys">系统 & 状态码</button>
           </div>
 
           <!-- §1 对外验证 -->
@@ -359,12 +362,18 @@ x-api-key: sk_live_xxxxxx_xxxxxxxxxxxx</pre>
             </article>
             <article class="doc-card">
               <h3>失败响应</h3>
-              <pre>200 OK
+              <pre>// 对外 API 错误码语义：成功返 200，所有失败统一 400
+//   用响应体里的 code 字段区分错误类型：
+//     MISSING_KEY / NOT_FOUND / DISABLED / EXPIRED
+//     ACCOUNT_NOT_FOUND / ACCOUNT_DISABLED / INVALID_OWNER_USER_ID / NO_ADMIN
+400 Bad Request
 {
-  "valid": false,
-  "code":  "NOT_FOUND | DISABLED | EXPIRED | MISSING_KEY",
-  "reason": "key 不存在"
-}</pre>
+  "valid":  false,
+  "code":   "MISSING_KEY",
+  "reason": "未提供 key"
+}
+
+// 响应体结构统一为 { valid:false, code, reason }，业务方按 code 判断</pre>
             </article>
             <article class="doc-card">
               <h3>业务侧调用示例</h3>
@@ -375,40 +384,47 @@ x-api-key: sk_live_xxxxxx_xxxxxxxxxxxx</pre>
                   <button data-pane="vp">Python</button>
                   <button data-pane="vg">Go</button>
                 </div>
-                <pre data-pane="vc">curl -X POST http://keymgr:3000/v1/verify \
+                <pre data-pane="vc">curl -sS -o /dev/null -w "%{http_code}\n" \
+  -X POST https://keymgr.example.com/v1/verify \
   -H "Content-Type: application/json" \
-  -d '{"key":"'"$MY_KEY"'"}'</pre>
+  -d '{"key":"'"$MY_KEY"'"}'
+# 200=ok  400=失败（响应体里 code 字段区分原因）</pre>
                 <pre data-pane="vn" hidden>// Express 中间件
 async function requireKey(req, res, next) {
-  const r = await fetch('http://keymgr:3000/v1/verify', {
+  const r = await fetch('https://keymgr.example.com/v1/verify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key: req.headers['x-api-key'] }),
   });
-  const { valid, code } = await r.json();
-  if (!valid) return res.status(401).json({ error: code });
+  // 200=ok, 其他状态码=失败（响应体里有 { valid:false, code, reason }）
+  if (r.status !== 200) {
+    const { code } = await r.json().catch(() => ({}));
+    return res.status(r.status).json({ error: code || 'verify_failed' });
+  }
   next();
 }</pre>
                 <pre data-pane="vp" hidden># Flask
 import requests
-def require_key(key: str) -> bool:
+def verify_ok(key: str) -> bool:
     r = requests.post(
-        'http://keymgr:3000/v1/verify',
+        'https://keymgr.example.com/v1/verify',
         json={'key': key},
         timeout=2,
     )
-    return r.json().get('valid') is True</pre>
+    return r.status_code == 200  # 200=ok, 其它=失败</pre>
                 <pre data-pane="vg" hidden>// net/http 中间件
 func Verify(next http.Handler) http.Handler {
   return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     key := r.Header.Get("X-API-Key")
     body, _ := json.Marshal(map[string]string{"key": key})
-    resp, _ := http.Post("http://keymgr:3000/v1/verify",
+    resp, _ := http.Post("https://keymgr.example.com/v1/verify",
       "application/json", bytes.NewReader(body))
     defer resp.Body.Close()
-    var out struct{ Valid bool `json:"valid"` }
-    json.NewDecoder(resp.Body).Decode(&out)
-    if !out.Valid { http.Error(w, "unauthorized", 401); return }
+    if resp.StatusCode != 200 {
+      // 失败：响应体 { valid:false, code, reason }
+      http.Error(w, "verify failed", resp.StatusCode)
+      return
+    }
     next.ServeHTTP(w, r)
   })
 }</pre>
@@ -448,11 +464,11 @@ Content-Type: application/json
 }</pre>
             </article>
             <article class="doc-card">
-              <h3>失败响应（状态码始终 200，按 <code class="inline">ok</code> 字段判断）</h3>
-              <pre>200 OK
+              <h3>失败响应（状态码始终 400，按 <code class="inline">code</code> 字段判断）</h3>
+              <pre>400 Bad Request
 {
   "ok": false,
-  "code":  "MISSING_NAME | INVALID_NAME | NOT_FOUND | MISSING_KEY | NOT_FOUND_KEY | DISABLED | EXPIRED",
+  "code":  "MISSING_NAME | INVALID_NAME | NOT_FOUND | MISSING_KEY | DISABLED | EXPIRED | SCOPE_FORBIDDEN | GROUP_NOT_FOUND",
   "reason": "变量不存在"
 }</pre>
             </article>
@@ -537,8 +553,7 @@ Content-Type: application/json
   "missing":   ["MISSING_VAR"],   // 请求了但库里没有
   "forbidden": []                 // 受 meta.scopes 限制、该 key 无权访问的
 }
-→ 400 MISSING_NAMES / TOO_MANY (一次最多 100) / INVALID_NAME
-→ 200 SCOPE_FORBIDDEN                // 全部被 scope 拦了</pre>
+→ 400 MISSING_NAMES / TOO_MANY (一次最多 100) / INVALID_NAME / SCOPE_FORBIDDEN</pre>
             </article>
             <article class="doc-card">
               <h3>POST /v1/variables/group</h3>
@@ -560,8 +575,7 @@ Content-Type: application/json
   ],
   "forbidden": []                 // 受 meta.scopes 过滤掉的变量
 }
-→ 400 MISSING_GROUP / INVALID_GROUP
-→ 200 GROUP_NOT_FOUND              // 该分组不存在或为空</pre>
+→ 400 MISSING_GROUP / INVALID_GROUP / GROUP_NOT_FOUND</pre>
             </article>
             <article class="doc-card span-2">
               <h3>行为说明</h3>
@@ -577,592 +591,395 @@ Content-Type: application/json
             </article>
           </div>
 
-          <!-- §6 认证 & 用户 -->
-          <div data-pane="a" class="doc-pane" hidden>
-            <article class="doc-card">
-              <h3>POST /api/auth/login</h3>
+          <!-- §6 后台管理：认证 / 用户 / Key / 变量 / 日志 -->
+          <div data-pane="admin" class="doc-pane" hidden>
+
+            <!-- 6.1 认证 & 用户 -->
+            <article class="doc-card span-2">
+              <h3>认证 & 用户管理</h3>
+              <p class="muted">登录成功下发 <code class="inline">km_sid</code> Cookie（HttpOnly, SameSite=Lax），有效期 7 天。10 分钟内 5 次登录失败 → 锁定 15 分钟。所有 <code class="inline">/api/*</code> 都需带 Cookie。账号用 <code class="inline">/api/users</code>，含主 Key 时用 <code class="inline">/api/accounts</code>（任选其一）。</p>
+              <table class="grid code-table">
+                <thead><tr><th>Method</th><th>Path</th><th>用途</th><th>权限</th></tr></thead>
+                <tbody>
+                  <tr><td><code>POST</code></td><td><code>/api/auth/login</code></td><td>登录拿 Cookie</td><td>公开</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/auth/logout</code></td><td>撤销当前 session</td><td>已登录</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/auth/change-password</code></td><td>改自己的密码（撤销该用户其它 session）</td><td>已登录</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/users/me/info</code></td><td>取当前用户信息</td><td>已登录</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/users</code></td><td>账号列表（?includeDeleted=1 含已软删）</td><td>admin</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/users</code></td><td>创建账号（自动生成主 Key，明文仅返回一次）</td><td>admin</td></tr>
+                  <tr><td><code>PATCH</code></td><td><code>/api/users/:id</code></td><td>改 role / displayName / password / disabled</td><td>admin</td></tr>
+                  <tr><td><code>DELETE</code></td><td><code>/api/users/:id</code></td><td>软删（连带其所有 key + 撤销 session）</td><td>admin</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/accounts</code></td><td>账号列表（含主 Key 摘要）</td><td>admin</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/accounts</code></td><td>创建账号并生成主 Key</td><td>admin</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/accounts/:id</code></td><td>账号详情</td><td>admin</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/accounts/:id/main-key</code></td><td>拿主 Key 明文</td><td>admin</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/accounts/:id/main-key/reroll</code></td><td>刷新主 Key（旧立即失效）</td><td>admin</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/accounts/:id/reset-password</code></td><td>重置登录密码（16 字符随机）</td><td>admin</td></tr>
+                  <tr><td><code>DELETE</code></td><td><code>/api/accounts/:id</code></td><td>软删账号</td><td>admin</td></tr>
+                </tbody>
+              </table>
               <pre>POST /api/auth/login
 { "username": "admin", "password": "xxxxx" }
+→ 200 { "ok": true, "username": "admin", "role": "admin" }
+  Set-Cookie: km_sid=...; HttpOnly; SameSite=Lax
+→ 401 INVALID_CREDENTIALS
+→ 429 TOO_MANY_LOGIN_FAILURES  // 锁定 15 分钟
 
-→ 200 { "ok": true, "username": "admin", "role": "admin", "displayName": "..." }
-                // Set-Cookie: km_sid=...   HttpOnly, SameSite=Lax
-→ 400 { "ok":false, "code":"MISSING_CREDENTIALS", "error":"..." }
-→ 401 { "ok":false, "code":"INVALID_CREDENTIALS", "error":"用户名或密码错误", "fails":3, "remaining":2 }
-→ 429 { "ok":false, "code":"TOO_MANY_LOGIN_FAILURES", "error":"失败次数过多，已被临时锁定 15 分钟", "retryAfterMs":900000 }
-
-// 10 分钟内连续 5 次失败 → 锁定 15 分钟（IP 维度）</pre>
-            </article>
-            <article class="doc-card">
-              <h3>POST /api/auth/logout</h3>
-              <pre>POST /api/auth/logout
-Cookie: km_sid=...
-
-→ 200 { "ok": true }
-// 立即撤销 session，客户端记得 location.href='/login'</pre>
-            </article>
-            <article class="doc-card">
-              <h3>POST /api/auth/change-password</h3>
-              <p class="muted">改自己的密码（需先输旧密码）。改完后会撤销该用户的所有 session（<b>当前会话保留</b>）。</p>
-              <pre>POST /api/auth/change-password
-Cookie: km_sid=...
-{ "currentPassword": "old-pwd", "newPassword": "new-pwd-123" }
-
-→ 200 { "ok":true, "sessionsRevoked": 2,
-        "message": "密码已更新，已撤销该账号的 2 个其它 session。当前会话保留。" }
+POST /api/auth/change-password
+{ "currentPassword": "old", "newPassword": "new-123" }
+→ 200 { "ok": true, "sessionsRevoked": 2, "message": "..." }
 → 400 MISSING_FIELDS / INVALID_PASSWORD
-→ 401 INVALID_CURRENT_PASSWORD</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/users/me/info</h3>
-              <p class="muted">取当前登录用户信息。后台首页初始化时调一次。</p>
-              <pre>GET /api/users/me/info
-Cookie: km_sid=...
+→ 401 INVALID_CURRENT_PASSWORD
 
-→ 200 { "ok": true, "user": { "id":1, "username":"admin", "role":"admin", "displayName":"admin" } }
-→ 401 { "ok":false, "error":"unauthorized" }</pre>
-            </article>
-            <article class="doc-card">
-              <h3>用户管理（仅 admin）</h3>
-              <p class="muted">增删改查账号。同一份能力也通过 <code class="inline">/api/accounts</code> 暴露（带主 Key 摘要），任选其一即可。</p>
-              <pre>GET    /api/users                       // 列表（不含已软删；includeDeleted=1 包含）
-POST   /api/users                       // 创建（自动生成主 Key，明文仅返回一次）
-PATCH  /api/users/:id                   // 改 role / displayName / password / disabled
-DELETE /api/users/:id                   // 软删（含其所有 key + 撤销 session）
-GET    /api/users/me/info               // 当前用户
-
-// 创建示例
+// 创建账号：自动生成主 Key，明文仅返回一次
 POST /api/users
 { "username":"alice", "password":"P@ssw0rd!", "role":"operator", "displayName":"Alice" }
-
-→ 200 { "ok":true, "id":2, "username":"alice", "role":"operator",
-        "mainKey": { "id":1, "prefix":"sk_acc_xxx", "plain":"sk_acc_...",
-                     "warning":"请妥善保存主 Key 明文..." },
-        "message":"已创建用户并自动生成主 Key" }
+→ 200 { "ok":true, "id":2, "mainKey": { "id":1, "prefix":"sk_acc_xxx",
+        "plain":"sk_acc_...", "warning":"请妥善保存主 Key 明文..." } }
 → 400 INVALID_USERNAME / INVALID_PASSWORD / INVALID_ROLE
 → 409 NAME_TAKEN
+// 防「最后一个 admin」：PATCH/DELETE 前先 GET /api/users 查 admin 数量
 
-// 防止「最后一个 admin 被降级 / 禁用 / 删除」：
-//   业务侧在 PATCH/DELETE 前先 GET /api/users 查 admin 数量</pre>
+// 拿主 Key 明文：GET /api/accounts/:id/main-key
+→ 404 NO_MAIN_KEY  → 409 ACCOUNT_DISABLED</pre>
             </article>
-            <article class="doc-card">
-              <h3>账号管理（仅 admin，含主 Key）</h3>
-              <pre>GET    /api/accounts                      // 列表（含每个账号的主 Key 摘要）
-POST   /api/accounts                      // 创建（自动生成主 Key，明文仅返回一次）
-GET    /api/accounts/:id                  // 详情
-GET    /api/accounts/:id/main-key         // 拿主 Key 明文（不可恢复）
-POST   /api/accounts/:id/main-key/reroll  // 刷新主 Key（旧立即失效）
-POST   /api/accounts/:id/reset-password   // 重置登录密码（16 字符随机）
-DELETE /api/accounts/:id                  // 软删（含主 Key + 所有 key + 撤销 session）
-// 主 Key 明文响应示例：200 { "ok":true, "accountId":2, "username":"alice", "keyId":1,
-        "prefix":"sk_acc_xxx", "currentPlain":"sk_acc_...",
-        "warning":"主 Key 是该账号的「凭证钥匙」..." }
-→ 404 NO_MAIN_KEY
-→ 409 ACCOUNT_DISABLED</pre>
-            </article>
-          </div>
 
-          <!-- §7 Key 管理 -->
-          <div data-pane="k" class="doc-pane" hidden>
-            <article class="doc-card">
-              <h3>GET /api/keys</h3>
-              <p class="muted">列出所有 Key（不含明文）。支持 <code class="inline">?q=</code> 模糊搜索，<code class="inline">?tag=</code> 多值精确匹配，<code class="inline">?ownerUserId=</code> 限定账号（operator 自动只看自己）。</p>
-              <pre>GET /api/keys
-GET /api/keys?q=prod
-GET /api/keys?tag=prod                     // 精确匹配某个 tag
-GET /api/keys?tag=prod,billing             // 逗号分隔多值（OR 关系：含任一即可）
-GET /api/keys?owner=team-a                 // 精确匹配 owner
-GET /api/keys?ownerUserId=1
-Cookie: km_sid=...
-
-→ 200
-{
-  "ok": true,
-  "items": [
-    {
-      "id": 1, "name": "prod-server", "prefix": "sk_live_2092",
-      "meta": { "owner": "team-a" },                 // 用户存的 meta
-      "owner":       "team-a",                        // 负责人/团队（独立字段）
-      "tags":        ["prod", "billing"],             // tag 数组
-      "ownerUserId": 1,                               // 归属账号 id
-      "ownerUsername":"alice",                        // 归属账号 username
-      "isDefault":   false,                           // 是否为主 Key
-      "enabled":     true,
-      "expires_at":  null,
-      "created_at":  "...", "last_used_at": "...",
-      "deleted_at":  null                             // 软删时间，未删 = null
-    }
-  ]
-}</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/keys/tags（标签清单 + 计数）</h3>
-              <p class="muted">与 <code class="inline">/api/variables/groups</code> 对齐：扫一遍所有 keys，列出所有出现过的 tag 和次数，<b>按字母排序</b>。operator 仅看自己名下的 tag，admin 默认看全部。</p>
-              <pre>GET /api/keys/tags
-GET /api/keys/tags?includeDeleted=1          // 包含已软删 key 上的 tag
-GET /api/keys/tags?includeMain=1             // 包含主 Key 上的 tag（仅 admin）
-Cookie: km_sid=...
-
-→ 200
-{
-  "ok": true,
-  "items": [
-    { "name": "billing",  "count": 5 },
-    { "name": "external", "count": 3 },
-    { "name": "prod",     "count": 8 },
-    { "name": "web",      "count": 2 }
-  ]
-}</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/keys/owners（owner 清单 + 计数）</h3>
-              <p class="muted">与 <code class="inline">/api/keys/tags</code> 对齐：列出所有出现过的 owner 和次数，<b>按字母排序</b>，空字符串 / null 的 owner 会被过滤。operator 仅看自己名下的 owner，admin 默认看全部。</p>
-              <pre>GET /api/keys/owners
-GET /api/keys/owners?includeDeleted=1
-GET /api/keys/owners?includeMain=1
-Cookie: km_sid=...
-
-→ 200
-{
-  "ok": true,
-  "items": [
-    { "name": "team-a", "count": 8 },
-    { "name": "team-b", "count": 3 }
-  ]
-}</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/keys?owner=xxx（按 owner 过滤）</h3>
-              <p class="muted">单值精确匹配。跟 <code class="inline">?tag=</code> 一起用、彼此独立（AND 关系）。</p>
-              <pre>GET /api/keys?owner=team-a
-GET /api/keys?owner=team-a&amp;tag=prod,billing
-Cookie: km_sid=...
-
-→ 200 { "ok": true, "items": [ ... ] }</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/keys/tag/:name（按标签查 key）</h3>
-              <p class="muted">与 <code class="inline">/api/variables/group/:name</code> 对齐：返回含指定 tag 的所有 key（不含明文）。tag 字符集 <code class="inline">[A-Za-z0-9_.\-]{1,32}</code>，跟变量 group 保持一致。</p>
-              <pre>GET /api/keys/tag/prod
-GET /api/keys/tag/prod?includeMain=1
-Cookie: km_sid=...
-
-→ 200
-{
-  "ok": true,
-  "tag":   "prod",
-  "count": 8,
-  "items": [
-    { "id": 1, "name": "prod-server", "tags": ["prod", "billing"], ... },
-    { "id": 4, "name": "prod-cron",   "tags": ["prod"],            ... }
-  ]
-}
-→ 400 INVALID_TAG
-→ 404 TAG_NOT_FOUND  // 该 tag 不存在或可见范围无匹配</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/keys/:id</h3>
-              <pre>→ 200 单个 key 详情（不含明文）
-→ 404 { "ok":false, "error":"key 不存在", "code":"NOT_FOUND" }</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/keys/:id/plain</h3>
-              <p class="muted">拿明文，给「复制」按钮使用。只返回当前有效明文，不返回历史 key（重置后旧 key 必然 401）。</p>
-              <pre>GET /api/keys/1/plain
-Cookie: km_sid=...
-
-→ 200
-{
-  "ok": true,
-  "id": 1,
-  "name": "prod-server",
-  "currentPlain":  "sk_live_abc123_xxxxxxxxxxxxx"
-}
-→ 404 NOT_FOUND</pre>
-            </article>
-            <article class="doc-card">
-              <h3>POST /api/keys · 自动生成</h3>
-              <pre>POST /api/keys
-{
-  "name":        "prod-server",         // 必填
-  "prefix":      "sk_live",             // 可选，默认 sk_live
-  "meta":        { "owner":"team-a" },   // 可选，任意 JSON 对象
-  "owner":       "team-a",              // 可选，负责人/团队（独立字段，≤ 64 字符）
-  "tags":        ["prod","billing"],    // 可选，1~20 项，每项 1~32 字符
-  "ownerUserId": 2,                     // 可选（仅 admin），指定归属账号
-  "expiresAt":   null                   // 可选，ISO 8601
-}
-
-→ 200
-{
-  "ok": true, "id": 1, "name": "prod-server",
-  "prefix": "sk_live_209202", "meta": {...},
-  "owner": "team-a", "tags": ["prod","billing"], "ownerUserId": 2,
-  "expiresAt": null,
-  "key": "sk_live_209202_xxxxxxxxxxxxx",        // 明文，仅此刻返回
-  "warning": "请妥善保存明文 key，此处之后将无法再次查看。",
-  "message": "已创建 key"
-}
-
-→ 400 { "ok":false, "code":"MISSING_NAME",        "field":"name" }
-→ 400 { "ok":false, "code":"INVALID_PREFIX",      "field":"prefix" }
-→ 400 { "ok":false, "code":"INVALID_META",        "field":"meta" }
-→ 400 { "ok":false, "code":"INVALID_OWNER",       "field":"owner" }
-→ 400 { "ok":false, "code":"INVALID_TAGS/INVALID_TAG/TOO_MANY_TAGS", "field":"tags" }
-→ 400 { "ok":false, "code":"INVALID_EXPIRES_AT",  "field":"expiresAt" }
-→ 403 { "ok":false, "code":"FORBIDDEN",           "error":"只有 admin 可以指定其他账号" }
-→ 400 { "ok":false, "code":"INVALID_OWNER_USER_ID","field":"ownerUserId" }
-→ 404 { "ok":false, "code":"ACCOUNT_NOT_FOUND",   "error":"账号不存在或已被软删" }
-→ 409 { "ok":false, "code":"ACCOUNT_DISABLED",    "error":"账号已停用" }
-→ 409 { "ok":false, "code":"NAME_TAKEN",          "field":"name" }</pre>
-            </article>
-            <article class="doc-card">
-              <h3>POST /api/keys · 导入已有 Key</h3>
-              <p class="muted">把外部已经签发的 key 纳入管理。<code class="inline">prefix</code> 可省略，自动取前 12 位；<code class="inline">owner</code> / <code class="inline">tags</code> / <code class="inline">ownerUserId</code> 含义同上。</p>
-              <pre>POST /api/keys
-{
-  "mode":  "import",
-  "name":  "openai-imported",
-  "plain": "sk-proj-AbCdEfGhIjKlMn12345",
-  "prefix":"sk-proj",          // 可选
-  "meta":  {"source":"openai"},// 可选
-  "owner": "openai-billing",   // 可选
-  "tags":  ["external"],       // 可选
-  "ownerUserId": 2             // 可选（仅 admin）
-}
-
-→ 200 { "ok":true, "id":1, "name":"openai-imported", "prefix":"sk-proj",
-        "owner":"openai-billing", "tags":["external"], "ownerUserId":2,
-        "imported":true, "message":"已导入 key" }
-→ 409 { "ok":false, "code":"KEY_DUPLICATE", "id":3 }   // 哈希已存在
-→ 400 { "ok":false, "code":"MISSING_PLAIN",  "field":"plain" }
-→ 422 { "ok":false, "code":"PLAIN_TOO_SHORT", "field":"plain" }</pre>
-            </article>
-            <article class="doc-card">
-              <h3>POST /api/keys/:id/reroll</h3>
-              <p class="muted">重置：生成新明文，旧 key 立即失效。</p>
-              <pre>→ 200 { "ok":true, "id":1, "prefix":"sk_live_abc123",
-        "key":"sk_live_abc123_新明文", "warning":"旧 key 已失效...",
-        "message":"已重新生成 key" }
-→ 404 NOT_FOUND</pre>
-            </article>
-            <article class="doc-card">
-              <h3>POST /api/keys/:id/toggle</h3>
-              <pre>→ 200 { "ok":true, "id":1, "enabled":false }
-→ 404 NOT_FOUND</pre>
-            </article>
-            <article class="doc-card">
-              <h3>PATCH /api/keys/:id</h3>
-              <p class="muted">局部更新。任何字段可省略；省略的字段不变。</p>
-              <pre>PATCH /api/keys/1
-{
-  "name":        "new-name",
-  "meta":        { "owner":"team-b" },
-  "owner":       "team-b",
-  "tags":        ["prod","v2"],
-  "ownerUserId": 2,            // 仅 admin 可改
-  "expiresAt":   "2027-01-01T00:00:00Z"
-}
-
-→ 200 { "ok":true, "message":"已更新" }
-→ 400 MISSING_NAME / INVALID_META / INVALID_OWNER / INVALID_TAGS / INVALID_EXPIRES_AT
-→ 400 INVALID_OWNER_USER_ID
-→ 403 FORBIDDEN（无权操作 / 越权改 ownerUserId 等）
-→ 404 ACCOUNT_NOT_FOUND / NOT_FOUND
-→ 409 ACCOUNT_DISABLED / DELETED / NAME_TAKEN</pre>
-            </article>
-            <article class="doc-card">
-              <h3>DELETE /api/keys/:id（软删）</h3>
-              <p class="muted"><b>30 天内可恢复</b>，超过 30 天由后台定时任务彻底清除（硬删请走 <code class="inline">/api/keys/:id/purge</code>）。</p>
-              <pre>DELETE /api/keys/1
-
-→ 200 { "ok":true, "message":"已删除（30 天内可恢复）",
-        "recoverableUntil":"2026-07-12T10:00:00.000Z" }
-→ 404 NOT_FOUND
-→ 409 ALREADY_DELETED（可走 /restore）</pre>
-            </article>
-            <article class="doc-card">
-              <h3>POST /api/keys/:id/restore</h3>
-              <pre>→ 200 { "ok":true, "message":"已恢复" }
-→ 404 NOT_FOUND
-→ 409 NOT_DELETED / TOO_LATE（超过 30 天）</pre>
-            </article>
-            <article class="doc-card">
-              <h3>DELETE /api/keys/:id/purge（仅 admin，硬删）</h3>
-              <p class="muted">绕过 30 天恢复窗口，立即从数据库中清除。不可恢复。</p>
-              <pre>→ 200 { "ok":true, "message":"已永久删除" }
-→ 403 FORBIDDEN（非 admin）
-→ 404 NOT_FOUND</pre>
-            </article>
+            <!-- 6.2 Key 管理 -->
             <article class="doc-card span-2">
-              <h3>字段说明</h3>
-              <ul class="doc-list">
-                <li><b>name</b> 1~64 字符，全局唯一。</li>
-                <li><b>prefix</b> 2~24 字符，字符集 <code class="inline">[A-Za-z0-9_.\-]</code>。留空使用 <code class="inline">sk_live</code>。</li>
-                <li><b>meta</b> 任意 JSON 对象，存回显时会原样返回给 <code class="inline">/v1/verify</code> 调用方。</li>
-                <li><b>owner</b> 负责人/团队字符串（独立于 <code class="inline">meta</code>，≤ 64 字符）。</li>
-                <li><b>tags</b> 字符串数组，1~20 项，每项 1~32 字符。</li>
-                <li><b>ownerUserId</b> 归属账号 id（仅 admin 可改）。</li>
-                <li><b>expiresAt</b> ISO 8601 字符串。过期后验证返回 <code class="inline">EXPIRED</code>。</li>
-                <li><b>明文存储</b>：数据库有 <code class="inline">current_plain</code>（当前有效 key 的明文，每次重置都更新）。软删不会清除明文（行还在），仅 <code class="inline">/api/keys/:id/purge</code> 硬删才会整行清除。</li>
-                <li><b>软删</b>：<code class="inline">DELETE /api/keys/:id</code> 只会设置 <code class="inline">deleted_at</code>，<code class="inline">/v1/verify</code> 看不到、列表默认不显示；30 天内可 <code class="inline">/restore</code>。</li>
-                <li><b>主 Key</b>：由 <code class="inline">/api/accounts</code> 创建/管理，<code class="inline">/api/keys</code> 列表默认不显示（<code class="inline">?includeMain=1</code> 可看，admin only）。</li>
-              </ul>
-            </article>
-          </div>
-
-          <!-- §8 变量管理 -->
-          <div data-pane="va2" class="doc-pane" hidden>
-            <article class="doc-card">
-              <h3>GET /api/variables</h3>
-              <p class="muted">列出变量。返回 <code class="inline">value</code> 明文（管理用）。支持分组过滤。</p>
-              <pre>GET /api/variables
-GET /api/variables?group=DB          // 某个分组
-GET /api/variables?group=__null__   // 未分组
-Cookie: km_sid=...
-
-→ 200
+              <h3>Key 管理</h3>
+              <p class="muted">主 Key 走 <code class="inline">/api/accounts</code>，普通 Key 走 <code class="inline">/api/keys</code>。operator 只能看自己名下 key，admin 看全部。明文 <code class="inline">current_plain</code> 只在创建 / 重置 / 拿 <code class="inline">/plain</code> 时返回。软删 30 天内可 <code class="inline">/restore</code>，硬删走 <code class="inline">/purge</code>（仅 admin）。</p>
+              <table class="grid code-table">
+                <thead><tr><th>Method</th><th>Path</th><th>用途</th><th>权限</th></tr></thead>
+                <tbody>
+                  <tr><td><code>GET</code></td><td><code>/api/keys</code></td><td>列表（?q= 模糊, ?tag= 多值, ?owner=, ?ownerUserId=, ?includeMain=1）</td><td>operator+</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/keys/tags</code></td><td>tag 清单 + 计数（按字母排序）</td><td>operator+</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/keys/owners</code></td><td>owner 清单 + 计数</td><td>operator+</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/keys/tag/:name</code></td><td>按 tag 查 key</td><td>operator+</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/keys/:id</code></td><td>详情（不含明文）</td><td>operator+</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/keys/:id/plain</code></td><td>拿当前明文（给「复制」按钮）</td><td>operator+</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/keys</code></td><td>创建（默认自动生成，可设 <code class="inline">mode: "import"</code> 导入已有 key）</td><td>operator+</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/keys/:id/reroll</code></td><td>重置：生成新明文，旧 key 立即失效</td><td>operator+</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/keys/:id/toggle</code></td><td>启停</td><td>operator+</td></tr>
+                  <tr><td><code>PATCH</code></td><td><code>/api/keys/:id</code></td><td>改 name / meta / owner / tags / expiresAt / ownerUserId</td><td>operator+</td></tr>
+                  <tr><td><code>DELETE</code></td><td><code>/api/keys/:id</code></td><td>软删（30 天可恢复）</td><td>operator+</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/keys/:id/restore</code></td><td>恢复软删</td><td>operator+</td></tr>
+                  <tr><td><code>DELETE</code></td><td><code>/api/keys/:id/purge</code></td><td>硬删（立即从 DB 清除）</td><td>admin</td></tr>
+                </tbody>
+              </table>
+              <pre>POST /api/keys
+// 自动生成：
 {
-  "ok": true,
-  "items": [
-    { "id":1, "name":"DB_URL",   "value":"postgres://...", "description":"生产 DB", "group":"DB", "created_at":"...", "updated_at":"..." },
-    { "id":2, "name":"FEATURE_X","value":"on",            "description":"灰度开关","group":null, "created_at":"...","updated_at":"..." }
-  ]
-}</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/variables/groups</h3>
-              <p class="muted">列出所有分组名 + 每个分组的变量数。供管理 UI 渲染分组下拉用。</p>
-              <pre>GET /api/variables/groups
-Cookie: km_sid=...
-
-→ 200
-{
-  "ok": true,
-  "items": [
-    { "name": "DB",        "count": 5 },
-    { "name": "FEATURE",   "count": 3 }
-  ]
-}</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/variables/group/:name</h3>
-              <p class="muted">查看某个分组下全部变量（value 明文，仅 admin 可见）。</p>
-              <pre>GET /api/variables/group/DB
-Cookie: km_sid=...
-
-→ 200
-{
-  "ok": true,
-  "group": "DB",
-  "count": 2,
-  "items": [
-    { "name":"DB_URL",  "value":"postgres://...", "description":"主库" },
-    { "name":"DB_REPL", "value":"postgres://...", "description":"从库" }
-  ]
+  "name":        "prod-server",       // 必填，1~64 字符，全局唯一
+  "prefix":      "sk_live",           // 可选，2~24 [A-Za-z0-9_.\-]，默认 sk_live
+  "meta":        { "owner":"team-a" },// 可选，任意 JSON，会原样回给 /v1/verify
+  "owner":       "team-a",            // 可选，独立字段，≤ 64 字符
+  "tags":        ["prod","billing"],  // 可选，1~20 项，每项 1~32
+  "ownerUserId": 2,                   // 可选（仅 admin）
+  "expiresAt":   null                 // 可选，ISO 8601
 }
-→ 400 INVALID_GROUP
-→ 404 GROUP_NOT_FOUND</pre>
+→ 200 { "ok":true, "id":1, ..., "key":"sk_live_209202_xxx",
+        "warning":"请妥善保存明文 key，此处之后将无法再次查看。" }
+
+// 导入已有 key：
+POST /api/keys
+{ "mode":"import", "name":"openai-imported",
+  "plain":"sk-proj-AbCdEfGhIjKlMn12345",
+  "prefix":"sk-proj", "owner":"openai-billing", "tags":["external"] }
+→ 200 { "ok":true, "id":1, "imported":true, ... }
+→ 409 KEY_DUPLICATE  // 哈希已存在
+→ 400 MISSING_PLAIN / INVALID_PREFIX / INVALID_OWNER / INVALID_TAGS
+→ 403 FORBIDDEN  // 越权指定 ownerUserId
+→ 404 ACCOUNT_NOT_FOUND  → 409 ACCOUNT_DISABLED / NAME_TAKEN
+
+PATCH /api/keys/1          // 局部更新，省略的字段不变
+{ "owner":"team-b", "tags":["prod","v2"], "expiresAt":"2027-01-01T00:00:00Z" }
+→ 200 { "ok":true, "message":"已更新" }
+
+DELETE /api/keys/1
+→ 200 { "ok":true, "recoverableUntil":"2026-07-12T10:00:00.000Z" }
+→ 404 NOT_FOUND  → 409 ALREADY_DELETED</pre>
             </article>
-            <article class="doc-card">
-              <h3>POST /api/variables</h3>
+
+            <!-- 6.3 变量管理 -->
+            <article class="doc-card span-2">
+              <h3>变量管理</h3>
+              <p class="muted">仅后台用，业务侧请走「对外变量 API」标签页。返回 <code class="inline">value</code> 明文（管理用）。同分组可批量调用 <code class="inline">/v1/variables/group</code>。</p>
+              <table class="grid code-table">
+                <thead><tr><th>Method</th><th>Path</th><th>用途</th><th>权限</th></tr></thead>
+                <tbody>
+                  <tr><td><code>GET</code></td><td><code>/api/variables</code></td><td>列表（?group=DB 或 __null__）</td><td>operator+</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/variables/groups</code></td><td>分组清单 + 计数</td><td>operator+</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/variables/group/:name</code></td><td>取分组下全部变量（明文）</td><td>operator+</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/variables/:id</code></td><td>详情</td><td>operator+</td></tr>
+                  <tr><td><code>POST</code></td><td><code>/api/variables</code></td><td>创建</td><td>operator+</td></tr>
+                  <tr><td><code>PATCH</code></td><td><code>/api/variables/:id</code></td><td>改名 / 改值 / 改描述 / 改分组</td><td>operator+</td></tr>
+                  <tr><td><code>DELETE</code></td><td><code>/api/variables/:id</code></td><td>删除</td><td>operator+</td></tr>
+                </tbody>
+              </table>
               <pre>POST /api/variables
 {
-  "name":        "DB_URL",
-  "value":       "postgres://...",
-  "description": "生产 DB",          // 可选，≤ 500 字符
-  "group":       "DB"                // 可选，2~64 字符 [A-Za-z0-9_.-]
+  "name":        "DB_URL",            // 2~64 [A-Za-z0-9_.-]，全局唯一
+  "value":       "postgres://...",    // ≤ 8192 字符
+  "description": "生产 DB",            // 可选，≤ 500，仅展示，不回给业务侧
+  "group":       "DB"                  // 可选，2~64 [A-Za-z0-9_.-]
 }
-
-→ 200 { "ok":true, "id":1, "name":"DB_URL", "value":"...", "description":"...",
-        "group":"DB", "created_at":"...", "updated_at":"...", "message":"已创建变量" }
-→ 400 { "ok":false, "code":"INVALID_NAME",   "field":"name" }
-→ 400 { "ok":false, "code":"INVALID_VALUE",  "field":"value" }
-→ 400 { "ok":false, "code":"INVALID_GROUP",  "field":"group" }
-→ 409 { "ok":false, "code":"NAME_TAKEN",     "field":"name" }</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/variables/:id</h3>
-              <pre>GET /api/variables/1
-Cookie: km_sid=...
-
-→ 200 { "ok":true, "id":1, "name":"DB_URL", "value":"...", "description":"...", "group":"DB" }
-→ 404 NOT_FOUND</pre>
-            </article>
-            <article class="doc-card">
-              <h3>PATCH /api/variables/:id</h3>
-              <p class="muted">局部更新（改名 / 改值 / 改描述 / 改分组），所有字段可选。<code class="inline">group: null</code> / <code class="inline">group: ""</code> 可将变量移出分组。</p>
-              <pre>PATCH /api/variables/1
-{ "value":"postgres://新连接串", "description":"新说明", "group":"DB" }
-
-→ 200 { "ok":true, "id":1, "name":"DB_URL", "value":"...", "description":"...",
-        "group":"DB", "created_at":"...", "updated_at":"...", "message":"已更新变量" }
+→ 200 { "ok":true, "id":1, ... }
 → 400 INVALID_NAME / INVALID_VALUE / INVALID_GROUP
-→ 404 NOT_FOUND
-→ 409 NAME_TAKEN</pre>
+→ 409 NAME_TAKEN
+
+PATCH /api/variables/1   // 改 group: null / "" 移出分组
+{ "value":"新值", "description":"新说明", "group":"DB" }
+→ 200 { "ok":true, "message":"已更新" }</pre>
             </article>
-            <article class="doc-card">
-              <h3>DELETE /api/variables/:id</h3>
-              <pre>→ 200 { "ok":true, "message":"已删除" }
-→ 404 NOT_FOUND</pre>
-            </article>
+
+            <!-- 6.4 日志 -->
             <article class="doc-card span-2">
-              <h3>字段说明</h3>
-              <ul class="doc-list">
-                <li><b>name</b> 2~64 字符 <code class="inline">[A-Za-z0-9_.-]</code>，全局唯一。业务侧调 <code class="inline">/v1/variables/get</code> 时传这个。</li>
-                <li><b>value</b> 字符串，≤ 8192 字符。建议存连接串、API key、JSON 序列化配置等。</li>
-                <li><b>description</b> 可选，≤ 500 字符。仅供后台展示，<b>不会</b>返回给业务侧。</li>
-                <li><b>group</b> 可选，2~64 字符 <code class="inline">[A-Za-z0-9_.-]</code>，<code class="inline">null</code> / <code class="inline">""</code> = 未分组。相同 group 的变量会出现在 <code class="inline">/v1/variables/group</code> 响应中。</li>
-                <li><b>更新时间</b> 改名 / 改值 / 改描述 / 改分组都会刷新。</li>
-                <li><b>对应业务侧接口</b>：见上方「对外变量 API」标签页。</li>
-              </ul>
-            </article>
-          </div>
-
-          <!-- §9 日志 -->
-          <div data-pane="l" class="doc-pane" hidden>
-            <article class="doc-card">
-              <h3>GET /api/logs</h3>
-              <p class="muted">查询 verify 验证日志（operator+ 才能看）。</p>
-              <pre>GET /api/logs?result=ok&amp;limit=50&amp;offset=0
-GET /api/logs?keyId=1              // 按 key 过滤
-Cookie: km_sid=...
-
+              <h3>日志</h3>
+              <p class="muted"><code class="inline">/api/logs</code> 是 verify 验证流水（结果 / 原因 / IP / UA / 耗时），<code class="inline">/api/audit</code> 是后台管理操作审计（操作人 / IP / UA / 目标）。DB 表超过 <code class="inline">LOG_RETENTION_DAYS</code> 自动清理；文件日志建议接入 logrotate。</p>
+              <table class="grid code-table">
+                <thead><tr><th>Method</th><th>Path</th><th>用途</th><th>权限</th></tr></thead>
+                <tbody>
+                  <tr><td><code>GET</code></td><td><code>/api/logs</code></td><td>验证日志（?result=ok|fail, ?keyId=, ?limit=, ?offset=）</td><td>operator+</td></tr>
+                  <tr><td><code>GET</code></td><td><code>/api/audit</code></td><td>审计日志（?action=, ?user_id=, ?target_type=, ?limit=, ?offset=）</td><td>admin</td></tr>
+                </tbody>
+              </table>
+              <pre>GET /api/logs?result=ok&limit=50&offset=0&keyId=1
 → 200
-{
-  "ok": true,
-  "total": 1234,
+{ "ok": true, "total": 1234,
   "items": [
-    { "id":1, "key_id":1, "key_prefix":"sk_live_2092",
-      "key_masked":"sk_live…osUU", "ip":"1.2.3.4",
-      "user_agent":"curl/8.0", "result":"ok", "reason":null,
-      "duration_ms":1.2, "created_at":"2026-06-11 10:00:00" }
-  ]
-}</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/audit（仅 admin）</h3>
-              <p class="muted">审计日志：登录、改密、Key 增删改、用户管理、verify 配置变更等。含操作人 / IP / UA。</p>
-              <pre>GET /api/audit?action=CREATE_KEY&amp;user_id=1&amp;limit=50&amp;offset=0
-GET /api/audit?target_type=key    // 按目标类型过滤
-Cookie: km_sid=...
+    { "id":1, "key_id":1, "key_prefix":"sk_live_2092", "key_masked":"sk_live…osUU",
+      "ip":"1.2.3.4", "user_agent":"curl/8.0",
+      "result":"ok", "reason":null, "duration_ms":1.2,
+      "created_at":"2026-06-11 10:00:00" }
+  ] }
 
+GET /api/audit?action=CREATE_KEY&user_id=1
 → 200
-{
-  "ok": true,
-  "total": 567,
+{ "ok": true, "total": 567,
   "items": [
     { "id":1, "user_id":1, "username":"admin",
       "action":"CREATE_KEY", "target_type":"key", "target_id":3, "target_name":"prod-server",
-      "details": { "prefix":"sk_live_xxx", "ownerUserId":1 },
+      "details":{ "prefix":"sk_live_xxx", "ownerUserId":1 },
       "ip":"1.2.3.4", "user_agent":"Mozilla/5.0...",
       "created_at":"2026-06-11 10:00:00" }
-  ]
-}
+  ] }
 
-// 常见 action：
-//   LOGIN_SUCCESS / LOGIN_FAILED / CHANGE_PASSWORD
-//   CREATE_KEY / IMPORT_KEY / REROLL_KEY / TOGGLE_KEY / PATCH_KEY / DELETE_KEY / RESTORE_KEY / PURGE_KEY
+// action 枚举：LOGIN_SUCCESS / LOGIN_FAILED / CHANGE_PASSWORD
+//   CREATE_KEY / IMPORT_KEY / REROLL_KEY / TOGGLE_KEY / PATCH_KEY
+//   DELETE_KEY / RESTORE_KEY / PURGE_KEY
 //   REROLL_MAIN_KEY / RESET_PASSWORD / CREATE_ACCOUNT / DELETE_ACCOUNT
 //   CREATE_USER / PATCH_USER / DELETE_USER
-//   CREATE_VAR / PATCH_VAR</pre>
-            </article>
-            <article class="doc-card">
-              <h3>日志文件</h3>
-              <pre># logs/app-YYYY-MM-DD.log  按天切割
-[2026-06-11 10:00:00] [INFO] verify ok ip=1.2.3.4 {"keyId":1}
-[2026-06-11 10:00:01] [WARN] verify fail NOT_FOUND ip=2.3.4.5
+//   CREATE_VAR / PATCH_VAR
 
-// 清理策略：LOG_RETENTION_DAYS（默认 30）之前的 verify_logs 会被自动删除
-// 文件日志建议接入 logrotate 自动归档（见 README）</pre>
+// 文件日志：logs/app-YYYY-MM-DD.log
+[2026-06-11 10:00:00] [INFO] verify ok ip=1.2.3.4 {"keyId":1}
+[2026-06-11 10:00:01] [WARN] verify fail NOT_FOUND ip=2.3.4.5</pre>
             </article>
+
           </div>
 
-          <!-- §10 状态码 -->
-          <div data-pane="s" class="doc-pane" hidden>
-            <article class="doc-card">
+          <!-- §7 系统 & 状态码 -->
+          <div data-pane="sys" class="doc-pane" hidden>
+
+            <article class="doc-card span-2">
               <h3>状态码语义</h3>
               <table class="grid code-table">
                 <thead><tr><th>状态</th><th>含义</th><th>触发场景</th></tr></thead>
                 <tbody>
-                  <tr><td><code>200</code></td><td>OK</td><td>成功创建/查询/更新/删除/验证</td></tr>
-                  <tr><td><code>400</code></td><td>Bad Request</td><td>参数缺失、JSON 解析失败、格式错</td></tr>
+                  <tr><td><code>200</code></td><td>OK</td><td>成功</td></tr>
+                  <tr><td><code>400</code></td><td>Bad Request</td><td>参数缺失、JSON 解析失败、格式错；<b>对外 API (/v1/*) 所有失败统一 400</b>，错误类型用 code 字段区分</td></tr>
                   <tr><td><code>401</code></td><td>Unauthorized</td><td>未登录或会话失效</td></tr>
-                  <tr><td><code>403</code></td><td>Forbidden</td><td>权限不足（非 admin 操作 admin 接口、跨账号操作别人的 key 等）</td></tr>
-                  <tr><td><code>404</code></td><td>Not Found</td><td>资源不存在</td></tr>
-                  <tr><td><code>409</code></td><td>Conflict</td><td>name 重复 / 导入的 key 哈希已存在 / 资源已被删除 / 软删账号改名 / 最后一个 admin 保护</td></tr>
+                  <tr><td><code>403</code></td><td>Forbidden</td><td>权限不足（非 admin 操作 admin 接口、跨账号操作别人的 key）</td></tr>
+                  <tr><td><code>404</code></td><td>Not Found</td><td>资源不存在（仅 /api/* 后台接口）</td></tr>
+                  <tr><td><code>409</code></td><td>Conflict</td><td>name 重复 / 哈希已存在 / 资源已被删除 / 最后一个 admin 保护</td></tr>
                   <tr><td><code>422</code></td><td>Unprocessable</td><td>格式合法但语义错（key 太短、过期时间已过去）</td></tr>
-                  <tr><td><code>429</code></td><td>Too Many Requests</td><td>限流（verify 600/min/IP，variables 1200/min/IP；登录 5 次 / 10 分钟）</td></tr>
+                  <tr><td><code>429</code></td><td>Too Many Requests</td><td>限流（verify 600/min/IP，var 1200/min/IP；登录 5/10min）</td></tr>
                   <tr><td><code>503</code></td><td>Service Unavailable</td><td>健康检查：DB 不可用</td></tr>
                 </tbody>
               </table>
             </article>
-            <article class="doc-card">
-              <h3>错误响应统一格式</h3>
-              <pre>{
-  "ok": false,
-  "error": "name 已存在",
-  "code":  "NAME_TAKEN",
-  "field": "name"     // 字段级错误时存在，前端用于回填
-}
 
-// /v1/* 对外验证接口用另一组（兼容既有业务）：
-{ "valid": false, "code": "NOT_FOUND", "reason": "key 不存在" }</pre>
-            </article>
             <article class="doc-card">
-              <h3>成功响应统一格式</h3>
+              <h3>成功响应</h3>
               <pre>{
   "ok": true,
   "...": "业务字段"
 }</pre>
             </article>
+
+            <article class="doc-card">
+              <h3>错误响应</h3>
+              <pre>// 管理 API (/api/*)
+{
+  "ok":    false,
+  "error": "name 已存在",
+  "code":  "NAME_TAKEN",
+  "field": "name"        // 字段级错误时存在
+}
+
+// 对外验证 (/v1/*) — 兼容既有业务
+{ "valid": false, "code": "NOT_FOUND", "reason": "key 不存在" }</pre>
+            </article>
+
             <article class="doc-card span-2">
-              <h3>code 列表（管理 API）</h3>
-              <pre>MISSING_NAME / INVALID_NAME       name 缺失或格式错
-INVALID_PREFIX                    prefix 格式错
-INVALID_META / INVALID_VALUE      meta / value 不是合法类型
-INVALID_TAGS / INVALID_TAG / TOO_MANY_TAGS   tags 数组不合法
-INVALID_EXPIRES_AT                expiresAt 格式错或已过期
-INVALID_OWNER                     owner 字段不合法
-INVALID_OWNER_USER_ID             ownerUserId 非整数
-ACCOUNT_NOT_FOUND / ACCOUNT_DISABLED  账号不存在 / 已被停用 / 已被软删
-MISSING_PLAIN / PLAIN_TOO_SHORT / IMPORT_FAILED  导入模式错误
-NAME_TAKEN                        name 已存在
-KEY_DUPLICATE                     导入的 key 哈希已存在
-NOT_FOUND / DELETED / NOT_DELETED / TOO_LATE / ALREADY_DELETED  资源状态错
-INVALID_USERNAME / INVALID_PASSWORD / INVALID_ROLE  用户字段不合法
+              <h3>code 速查</h3>
+              <pre>// 用户 / 账号
+INVALID_USERNAME / INVALID_PASSWORD / INVALID_ROLE
+MISSING_CREDENTIALS / INVALID_CREDENTIALS / INVALID_CURRENT_PASSWORD
 CANNOT_DISABLE_SELF / CANNOT_DELETE_SELF / CANNOT_RESET_SELF
-LAST_ADMIN                        最后一个 admin 不可降级/禁用/删除
-CANNOT_DELETE_MAIN_ADMIN          主 admin 不可删
-NO_MAIN_KEY                       账号尚未配置主 Key
-FORBIDDEN                         权限不足
-TOO_MANY / TOO_MANY_LOGIN_FAILURES  限流 / 登录爆破
-MISSING_CREDENTIALS / INVALID_CREDENTIALS / INVALID_CURRENT_PASSWORD  登录失败
-UNAUTHORIZED                      未登录
-// /v1/verify 用另一组：NOT_FOUND / DISABLED / EXPIRED / MISSING_KEY
-// /v1/variables/*：MISSING_NAME / INVALID_NAME / NOT_FOUND / MISSING_KEY / NOT_FOUND_KEY
-//                  DISABLED / EXPIRED / MISSING_NAMES / TOO_MANY / SCOPE_FORBIDDEN
-//                  MISSING_GROUP / INVALID_GROUP / GROUP_NOT_FOUND
-//                  ACCOUNT_NOT_FOUND / ACCOUNT_DISABLED / INVALID_OWNER_USER_ID / NO_ADMIN</pre>
+LAST_ADMIN / CANNOT_DELETE_MAIN_ADMIN
+NO_MAIN_KEY / ACCOUNT_NOT_FOUND / ACCOUNT_DISABLED
+
+// Key
+MISSING_NAME / INVALID_NAME / INVALID_PREFIX / INVALID_META / INVALID_OWNER
+INVALID_TAGS / INVALID_TAG / TOO_MANY_TAGS / INVALID_EXPIRES_AT / INVALID_OWNER_USER_ID
+MISSING_PLAIN / PLAIN_TOO_SHORT / KEY_DUPLICATE
+NAME_TAKEN / NOT_FOUND / DELETED / NOT_DELETED / TOO_LATE / ALREADY_DELETED
+
+// 变量
+INVALID_NAME / INVALID_VALUE / INVALID_GROUP / GROUP_NOT_FOUND
+MISSING_NAMES / MISSING_GROUP / SCOPE_FORBIDDEN / NO_ADMIN
+
+// 通用
+UNAUTHORIZED / FORBIDDEN / TOO_MANY / TOO_MANY_LOGIN_FAILURES
+
+// /v1/verify 专用
+NOT_FOUND / DISABLED / EXPIRED / MISSING_KEY</pre>
             </article>
+
+            <article class="doc-card">
+              <h3>GET /healthz</h3>
+              <p class="muted">健康检查，<b>无需鉴权</b>，供 K8s liveness / readiness、负载均衡健康探测用。DB 不可用时返 503。</p>
+              <pre>→ 200
+{
+  "ok": true, "time": "...", "version": "1.0.0", "uptimeSec": 86400,
+  "db":    { "ok": true, "err": null, "queryMs": 1 },
+  "sessions": { "active": 3 },
+  "memory":   { "rss": ..., "heapUsed": ..., "heapTotal": ..., "external": ... },
+  "metrics":  { "counters": {...}, "duration": { "p50":1.2, "p95":3.4, "p99":8.9, ... } },
+  "alerts":   { "enabled": true, "threshold": 30, "windowMs": 60000, "currentWindow": 2 }
+}</pre>
+            </article>
+
+            <article class="doc-card">
+              <h3>GET /api/metrics（仅 admin）</h3>
+              <p class="muted">内存指标快照：累计计数 + 最近 1024 个请求的响应时间分位。可对接 Prometheus 定期抓取。</p>
+              <pre>→ 200
+{ "ok": true,
+  "counters": {
+    "verifyTotal": 12345, "verifyOk": 12000, "verifyFail": 345,
+    "verifyFailByReason": { "NOT_FOUND": 200, "DISABLED": 80, "EXPIRED": 40, "MISSING_KEY": 25 },
+    "http2xx": 13000, "http4xx": 200, "http5xx": 5 },
+  "duration":  { "count": 12345, "p50": 1.2, "p95": 3.4, "p99": 8.9, "max": 42.1 },
+  "memory":    { "rss": ..., "heapUsed": ..., "heapTotal": ..., "external": ... },
+  "uptimeSec": 86400,
+  "alerts":    { "enabled": true, "threshold": 30, "windowMs": 60000, "currentWindow": 2 }
+}</pre>
+            </article>
+
+            <article class="doc-card">
+              <h3>告警 Webhook</h3>
+              <p class="muted">verify 失败率异常时自动 POST 到 <code class="inline">ALERT_WEBHOOK_URL</code>。</p>
+              <pre># .env
+ALERT_WEBHOOK_URL=https://hooks.example.com/keymgr
+ALERT_WEBHOOK_THRESHOLD=30     // 窗口内累计失败次数
+ALERT_WEBHOOK_WINDOW_MS=60000  // 滑动窗口
+ALERT_COOLDOWN_MS=300000       // 同一告警冷却
+
+# payload
+POST <ALERT_WEBHOOK_URL>
+{
+  "event":    "verify_fail_spike", "severity": "high",
+  "count": 42, "windowMs": 60000,
+  "topReasons": [ { "reason": "NOT_FOUND", "count": 30 } ],
+  "ts": "...", "host": "keymgr-prod-01", "service": "keymgr"
+}</pre>
+            </article>
+
             <article class="doc-card span-2">
-              <h3>认证机制</h3>
-              <ul class="doc-list">
-                <li>登录成功后下发 <code class="inline">km_sid</code> Cookie（<code class="inline">HttpOnly</code>、<code class="inline">SameSite=Lax</code>，HTTPS 时可通过 <code class="inline">COOKIE_SECURE=1</code> 启用 <code class="inline">Secure</code> 标志）。</li>
-                <li>所有 <code class="inline">/api/*</code> 需要带上 Cookie，否则 401。</li>
-                <li>Cookie 默认有效期 7 天；<code class="inline">POST /api/auth/change-password</code> 改密会撤销该用户的其它 session（当前会话保留）。</li>
-                <li><code class="inline">/v1/verify</code>、<code class="inline">/v1/variables/*</code> 不需要后台认证，仅用 Key 鉴权 + 限流。</li>
-                <li>登录失败限流：同 IP 10 分钟内连续 5 次失败 → 锁定 15 分钟（<code class="inline">429 TOO_MANY_LOGIN_FAILURES</code>）。</li>
-                <li>本系统未实现 CSRF Token（依赖 <code class="inline">SameSite=Lax</code> Cookie 防跨站）；若反向代理后只对自家内网开放，CSRF 风险可忽略。</li>
-              </ul>
+              <h3>HTTPS 部署（生产环境必做）</h3>
+              <p class="muted">KeyMgr 本身只跑 HTTP（<code class="inline">:3000</code>），TLS 终止交给反代。<b>反代会带上 <code class="inline">X-Forwarded-Proto</code>，驱动 <code class="inline">COOKIE_SECURE=1</code> 自动给 Cookie 加 <code class="inline">Secure</code> 标志</b>。本机开发用 <code class="inline">npm run dev</code> 即可。</p>
+              <div class="code-tabs" data-tabs>
+                <div class="code-tab-bar">
+                  <button data-pane="ng" class="active">Nginx</button>
+                  <button data-pane="ca">Caddy</button>
+                  <button data-pane="cp">Cloudflare Tunnel</button>
+                </div>
+                <pre data-pane="ng"># /etc/nginx/sites-enabled/keymgr.conf
+# 申请证书：certbot --nginx -d keymgr.example.com
+server {
+  listen 443 ssl http2;
+  server_name keymgr.example.com;
+
+  ssl_certificate     /etc/letsencrypt/live/keymgr.example.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/keymgr.example.com/privkey.pem;
+
+  # 收紧 TLS（推荐 Mozilla Intermediate）
+  ssl_protocols TLSv1.2 TLSv1.3;
+  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+  ssl_prefer_server_ciphers off;
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+  client_max_body_size 2m;   # 限制上传，verify body 很小
+
+  location / {
+    proxy_pass         http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;   # ← 关键：驱动 Secure Cookie
+    proxy_set_header   X-Forwarded-Host  $host;
+    proxy_read_timeout 30s;
+  }
+}
+
+# 80 强制跳 443
+server { listen 80; server_name keymgr.example.com; return 301 https://$host$request_uri; }</pre>
+                <pre data-pane="ca" hidden># /etc/caddy/Caddyfile  （Caddy 自动申请并续期证书）
+keymgr.example.com {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:3000 {
+    header_up Host              {host}
+    header_up X-Real-IP         {remote_host}
+    header_up X-Forwarded-For   {remote_host}
+    header_up X-Forwarded-Proto {scheme}    # ← 关键
+  }
+}</pre>
+                <pre data-pane="cp" hidden># Cloudflare Tunnel（Zero Trust，免证书）
+# config.yml
+tunnel: <tunnel-id>
+credentials-file: /root/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: keymgr.example.com
+    service: http://127.0.0.1:3000
+    originRequest:
+      httpHostHeader: keymgr.example.com
+  - service: http_status:404
+
+# 启动：cloudflared tunnel run
+# Cloudflare 自动 https + Forwarded 头，无需额外配置</pre>
+              </div>
             </article>
+
+            <article class="doc-card">
+              <h3>数据备份</h3>
+              <pre># npm run backup             # 打包 db + 最近 7 天日志
+# npm run backup -- 30       # 打包 db + 最近 30 天日志
+# BACKUP_KEEP=60 npm run backup  # 保留 60 份历史
+# 输出：./backups/keymgr-backup-YYYYMMDD-HHmmss.tar.gz
+# 内容：data/keymgr.db + logs/app-*.log（按 BACKUP_LOG_DAYS 过滤）
+# 自动清理：超过 BACKUP_KEEP 份的最旧备份会被删除
+# .gitignore 已忽略 backups/ 目录（备份含真实 db 数据）</pre>
+            </article>
+
             <article class="doc-card span-2">
               <h3>角色权限矩阵</h3>
               <table class="grid code-table">
                 <thead><tr><th>能力</th><th>viewer</th><th>operator</th><th>admin</th></tr></thead>
                 <tbody>
                   <tr><td>查看 Key / 变量</td><td>✓</td><td>✓</td><td>✓</td></tr>
-                  <tr><td>查看验证日志（<code class="inline">/api/logs</code>）</td><td>✓</td><td>✓</td><td>✓</td></tr>
-                  <tr><td>查看审计日志（<code class="inline">/api/audit</code>）</td><td>✓</td><td>✓</td><td>✓</td></tr>
+                  <tr><td>查看验证日志 / 审计日志</td><td>✓</td><td>✓</td><td>✓</td></tr>
                   <tr><td>创建 / 修改 / 删除 / 重置 Key</td><td>✗</td><td>✓（仅自己名下）</td><td>✓</td></tr>
                   <tr><td>创建 / 修改 / 删除变量</td><td>✗</td><td>✓</td><td>✓</td></tr>
                   <tr><td>查看主 Key 明文 / 刷新主 Key</td><td>✗</td><td>✗</td><td>✓</td></tr>
@@ -1170,85 +987,6 @@ UNAUTHORIZED                      未登录
                   <tr><td>查看 <code class="inline">/api/metrics</code></td><td>✗</td><td>✗</td><td>✓</td></tr>
                 </tbody>
               </table>
-            </article>
-          </div>
-
-          <!-- §11 系统 & 监控 -->
-          <div data-pane="sm" class="doc-pane" hidden>
-            <article class="doc-card">
-              <h3>GET /healthz</h3>
-              <p class="muted">健康检查，<b>无需鉴权</b>，供 K8s liveness / readiness、负载均衡健康探测用。</p>
-              <pre>GET /healthz
-
-→ 200
-{
-  "ok": true,
-  "time": "2026-06-12T10:00:00.000Z",
-  "version": "1.0.0",
-  "uptimeSec": 86400,
-  "db":    { "ok": true, "err": null, "queryMs": 1 },
-  "sessions": { "active": 3 },
-  "memory": { "rss": 52428800, "heapUsed": 20971520, "heapTotal": 31457280, "external": 1048576 },
-  "metrics": { "counters": {...}, "duration": { "p50":1.2, "p95":3.4, "p99":8.9, "max":42.1, "count":12345 }, ... },
-  "alerts": { "enabled": true, "threshold": 30, "windowMs": 60000, "currentWindow": 2, "lastAlertAt": null }
-}
-
-→ 503                  // DB 不可用时
-{ "ok": false, "db": { "ok": false, "err": "..." }, ... }</pre>
-            </article>
-            <article class="doc-card">
-              <h3>GET /api/metrics（仅 admin）</h3>
-              <p class="muted">内存指标快照：累计计数 + 最近 1024 个请求的响应时间分位。可对接 Prometheus / 自建监控定期抓取。</p>
-              <pre>GET /api/metrics
-Cookie: km_sid=...（admin 角色）
-→ 200
-{
-  "ok": true,
-  "counters": {
-    "verifyTotal": 12345,
-    "verifyOk":    12000,
-    "verifyFail":  345,
-    "verifyFailByReason": { "NOT_FOUND": 200, "DISABLED": 80, "EXPIRED": 40, "MISSING_KEY": 25 },
-    "http2xx": 13000, "http4xx": 200, "http5xx": 5
-  },
-  "duration": { "count": 12345, "p50": 1.2, "p95": 3.4, "p99": 8.9, "max": 42.1 },
-  "memory":   { "rss": ..., "heapUsed": ..., "heapTotal": ..., "external": ... },
-  "uptimeSec": 86400,
-  "alerts":   { "enabled": true, "threshold": 30, "windowMs": 60000, "currentWindow": 2, ... }
-}</pre>
-            </article>
-            <article class="doc-card">
-              <h3>告警 Webhook</h3>
-              <p class="muted"><code class="inline">/v1/verify</code> 失败率异常时自动 POST 到 <code class="inline">ALERT_WEBHOOK_URL</code>。配置见 README。</p>
-              <pre># .env
-ALERT_WEBHOOK_URL=https://hooks.example.com/keymgr
-ALERT_WEBHOOK_THRESHOLD=30       // 窗口内累计失败次数
-ALERT_WEBHOOK_WINDOW_MS=60000    // 滑动窗口
-ALERT_COOLDOWN_MS=300000         // 同一告警冷却
-
-# Webhook payload
-POST <ALERT_WEBHOOK_URL>
-Content-Type: application/json
-{
-  "event":     "verify_fail_spike",
-  "severity":  "high",
-  "count":     42,
-  "windowMs":  60000,
-  "topReasons": [ { "reason": "NOT_FOUND", "count": 30 }, { "reason": "DISABLED", "count": 12 } ],
-  "ts":        "2026-06-12T10:00:00.000Z",
-  "host":      "keymgr-prod-01",
-  "service":   "keymgr"
-}</pre>
-            </article>
-            <article class="doc-card">
-              <h3>数据备份</h3>
-              <pre># npm run backup             # 打包 db + 最近 7 天日志
-# npm run backup -- 30       # 打包 db + 最近 30 天日志
-# BACKUP_KEEP=60 npm run backup   # 保留 60 份历史
-# 输出：./backups/keymgr-backup-YYYYMMDD-HHmmss.tar.gz
-# 内容：data/keymgr.db + logs/app-*.log（按 BACKUP_LOG_DAYS 过滤）
-# 自动清理：超过 BACKUP_KEEP 份的最旧备份会被删除
-# .gitignore 已忽略 backups/ 目录（备份含真实 db 数据）</pre>
             </article>
           </div>
         </div>

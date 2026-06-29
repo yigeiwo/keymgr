@@ -298,10 +298,11 @@ function renderKeys() {
   const tbody = $('#keys-tbody');
   const items = allKeys;
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="11"><div class="empty empty--key">
+    tbody.innerHTML = `<tr><td colspan="12"><div class="empty empty--key">
       <div>还没有 Key</div>
       <button type="button" class="primary" data-act="empty-new-key"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新建 Key</button>
     </div></td></tr>`;
+    refreshBulkBar();
     return;
   }
   // 紧凑时间（不带日期），避免换行；过长则省略
@@ -322,6 +323,7 @@ function renderKeys() {
       : `<span class="muted" title="老库兼容：未归属">—</span>`;
     return `
     <tr ${isDel ? 'style="opacity:.6;"' : ''}>
+      <td data-label="选择"><input type="checkbox" class="row-check" data-id="${k.id}" aria-label="选择 ${escapeHtml(k.name)}"></td>
       <td data-label="#"><b>${i + 1}</b></td>
       <td data-label="名称" class="cell-name">
         <div class="primary-name">${escapeHtml(k.name)}</div>
@@ -347,12 +349,93 @@ function renderKeys() {
                : `<button class="ghost" data-act="edit" data-id="${k.id}" title="编辑">${ICO.edit}</button>
                   <button class="ghost" data-act="reroll" data-id="${k.id}" title="重置">${ICO.reroll}</button>
                   <button class="ghost" data-act="toggle" data-id="${k.id}" title="${k.enabled ? '停用' : '启用'}">${k.enabled ? ICO.toggle_on : ICO.toggle_off}</button>
-                  <button class="ghost" data-act="del" data-id="${k.id}" title="删除">${ICO.del}</button>`}`
+                  <button class="ghost danger" data-act="del" data-id="${k.id}" title="删除（30 天内可恢复）">${ICO.del}</button>`}`
           : '<span class="muted">只读</span>'}
       </td>
     </tr>`;
   }).join('');
+  refreshBulkBar();
 }
+
+// ====== 批量操作（Keys） ======
+let checkedIds = new Set();
+
+function refreshBulkBar() {
+  const bar = $('#key-bulk-bar');
+  const cnt = $('#key-bulk-count');
+  if (!bar) return;
+  const ids = Array.from(checkedIds);
+  bar.hidden = ids.length === 0;
+  if (cnt) cnt.textContent = ids.length;
+  // 同步表头全选
+  const all = $$('.row-check').length;
+  const checked = $$('.row-check:checked').length;
+  const head = $('#key-check-all');
+  if (head) {
+    head.checked = all > 0 && checked === all;
+    head.indeterminate = checked > 0 && checked < all;
+  }
+}
+
+$('#keys-tbody')?.addEventListener('change', (e) => {
+  if (e.target.matches('.row-check')) {
+    const id = String(e.target.dataset.id);
+    if (e.target.checked) checkedIds.add(id); else checkedIds.delete(id);
+    refreshBulkBar();
+  }
+});
+
+$('#key-check-all')?.addEventListener('change', (e) => {
+  const checked = e.target.checked;
+  $$('.row-check').forEach(cb => {
+    cb.checked = checked;
+    const id = String(cb.dataset.id);
+    if (checked) checkedIds.add(id); else checkedIds.delete(id);
+  });
+  refreshBulkBar();
+});
+
+$('#key-bulk-bar')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-bulk]');
+  if (!btn) return;
+  const ids = Array.from(checkedIds);
+  if (btn.dataset.bulk === 'clear') {
+    checkedIds.clear();
+    $$('.row-check').forEach(cb => (cb.checked = false));
+    refreshBulkBar();
+    return;
+  }
+  if (ids.length === 0) return;
+  if (btn.dataset.bulk === 'del') {
+    if (!await appConfirm({
+      title: `批量删除 ${ids.length} 个 Key`,
+      message: `确定删除这 ${ids.length} 个 Key？30 天内可恢复。`,
+      okText: '批量删除', danger: true,
+    })) return;
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try { await api(`/api/keys/${id}`, { method: 'DELETE' }); ok++; }
+      catch (_) { fail++; }
+    }
+    const m = loadPlainMap();
+    ids.forEach(id => delete m[String(id)]);
+    savePlainMap(m);
+    checkedIds.clear();
+    toast(`已删除 ${ok} 个${fail ? `，失败 ${fail} 个` : ''}`, fail ? 'err' : 'ok');
+    loadKeys();
+    return;
+  }
+  if (btn.dataset.bulk === 'toggle') {
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try { await api(`/api/keys/${id}/toggle`, { method: 'POST' }); ok++; }
+      catch (_) { fail++; }
+    }
+    checkedIds.clear();
+    toast(`已切换 ${ok} 个${fail ? `，失败 ${fail} 个` : ''}`, fail ? 'err' : 'ok');
+    loadKeys();
+  }
+});
 
 $('#key-search')?.addEventListener('input', debounce((e) => {
   keySearchTerm = e.target.value.trim();
@@ -1581,12 +1664,12 @@ function renderVariables() {
     const groupCell = v.group
       ? `<span class="badge ok" data-act="var-view-group" data-group="${escapeHtml(v.group)}" title="查看该分组下全部变量">${escapeHtml(v.group)}</span>`
       : '<span class="muted">—</span>';
-    const descShort = v.description && v.description.length > 60 ? v.description.slice(0, 60) + '…' : (v.description || '');
+    const descShort = v.description || '';
     return `
     <tr>
       <td data-label="#"><b>${i + 1}</b></td>
       <td data-label="name"><div class="primary-name"><code>${escapeHtml(v.name)}</code></div></td>
-      <td data-label="value" class="truncate" title="${escapeHtml(v.value)}"><code class="muted-code">${escapeHtml(v.value.length > 60 ? v.value.slice(0, 60) + '…' : v.value)}</code></td>
+      <td data-label="value" class="truncate" title="${escapeHtml(v.value)}"><code class="muted-code">${escapeHtml(v.value)}</code></td>
       <td data-label="分组">${groupCell}</td>
       <td data-label="描述" class="truncate" title="${escapeHtml(v.description || '')}">${descShort ? escapeHtml(descShort) : '<span class="muted">—</span>'}</td>
       <td data-label="更新时间" data-col="time">${fmtTime(v.updated_at)}</td>
@@ -2974,9 +3057,9 @@ renderAccounts = function() {
     const roleBadge = a.role === 'admin' ? '<span class="badge ok" style="font-size:10px;">admin</span>'
       : a.role === 'operator' ? '<span class="badge" style="font-size:10px;background:var(--accent-soft);color:var(--accent);">operator</span>'
       : '<span class="muted" style="font-size:10px;">viewer</span>';
-    graphHtml += `<div style="padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--card-2);">
+    graphHtml += `<div style="padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--card-2);overflow:hidden;">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-        ${statusBadge} <strong>${escapeHtml(a.username)}</strong> ${roleBadge}
+        ${statusBadge} <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;">${escapeHtml(a.username)}</strong> ${roleBadge}
       </div>
       ${a.displayName ? `<div class="muted" style="font-size:12px;">${escapeHtml(a.displayName)}</div>` : ''}
       <div style="font-size:12px;margin-top:6px;">

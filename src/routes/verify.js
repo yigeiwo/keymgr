@@ -51,22 +51,23 @@ function resolveVerifyAccount(req) {
   const accountName = body.account !== undefined && body.account !== null && body.account !== ''
     ? body.account
     : body.ownerUsername;
+  // 错误一律返 400；用 code 字段区分类型
   if (accountName !== undefined && accountName !== null && accountName !== '') {
     const u = db.prepare('SELECT id, username, disabled FROM users WHERE username = ? AND deleted_at IS NULL').get(String(accountName));
-    if (!u) return { error: 'ACCOUNT_NOT_FOUND', status: 200, msg: '账号不存在' };
-    if (u.disabled) return { error: 'ACCOUNT_DISABLED', status: 200, msg: '账号已停用' };
+    if (!u) return { error: 'ACCOUNT_NOT_FOUND', msg: '账号不存在' };
+    if (u.disabled) return { error: 'ACCOUNT_DISABLED', msg: '账号已停用' };
     return { userId: u.id, username: u.username };
   }
   if (body.ownerUserId !== undefined && body.ownerUserId !== null && body.ownerUserId !== '') {
     const uid = parseInt(body.ownerUserId, 10);
-    if (!uid || isNaN(uid)) return { error: 'INVALID_OWNER_USER_ID', status: 200, msg: 'ownerUserId 必须是整数' };
+    if (!uid || isNaN(uid)) return { error: 'INVALID_OWNER_USER_ID', msg: 'ownerUserId 必须是整数' };
     const u = db.prepare('SELECT id, username, disabled FROM users WHERE id = ? AND deleted_at IS NULL').get(uid);
-    if (!u) return { error: 'ACCOUNT_NOT_FOUND', status: 200, msg: '账号不存在' };
-    if (u.disabled) return { error: 'ACCOUNT_DISABLED', status: 200, msg: '账号已停用' };
+    if (!u) return { error: 'ACCOUNT_NOT_FOUND', msg: '账号不存在' };
+    if (u.disabled) return { error: 'ACCOUNT_DISABLED', msg: '账号已停用' };
     return { userId: u.id, username: u.username };
   }
   const aid = getDefaultAdminId();
-  if (!aid) return { error: 'NO_ADMIN', status: 200, msg: '系统中没有可用管理员账号' };
+  if (!aid) return { error: 'NO_ADMIN', msg: '系统中没有可用管理员账号' };
   // 默认账号的 username 也回查一下（方便响应里带上）
   const u = db.prepare('SELECT username FROM users WHERE id = ?').get(aid);
   return { userId: aid, username: u ? u.username : 'admin' };
@@ -182,7 +183,7 @@ router.post('/verify', verifyLimiter, (req, res) => {
     metrics.recordDuration(dur);
     metrics.recordVerify('fail', acct.error);
     log.logVerify({ keyPrefix: null, keyMasked: null, ip, userAgent: ua, result: 'fail', reason: acct.error, durationMs: dur });
-    return res.json({ valid: false, code: acct.error, reason: acct.msg });
+    return res.status(400).json({ valid: false, code: acct.error, reason: acct.msg });
   }
 
   if (!plain) {
@@ -191,7 +192,7 @@ router.post('/verify', verifyLimiter, (req, res) => {
     metrics.recordVerify('fail', 'MISSING_KEY');
     alerts.recordFail('MISSING_KEY');
     log.logVerify({ keyPrefix: null, keyMasked: null, ip, userAgent: ua, result: 'fail', reason: 'MISSING_KEY', durationMs: dur });
-    return res.json({ valid: false, code: 'MISSING_KEY', reason: '未提供 key' });
+    return res.status(400).json({ valid: false, code: 'MISSING_KEY', reason: '未提供 key' });
   }
 
   const authResult = authenticateKeyForAccount(plain, acct);
@@ -199,18 +200,22 @@ router.post('/verify', verifyLimiter, (req, res) => {
   let result = 'fail';
   let reason = 'INVALID';
   let body;
+  let httpStatus = 400;
   const effectiveRow = authResult.row || null;
   const isSuperKey = !!authResult.superKey;
 
   if (!effectiveRow) {
     reason = 'NOT_FOUND';
     body = { valid: false, code: 'NOT_FOUND', reason: 'key 不存在或不属于此账号' };
+    httpStatus = 400;
   } else if (!effectiveRow.enabled) {
     reason = 'DISABLED';
     body = { valid: false, code: 'DISABLED', reason: 'key 已停用' };
+    httpStatus = 400;
   } else if (effectiveRow.expires_at && new Date(effectiveRow.expires_at).getTime() < Date.now()) {
     reason = 'EXPIRED';
     body = { valid: false, code: 'EXPIRED', reason: 'key 已过期' };
+    httpStatus = 400;
   } else {
     result = 'ok';
     reason = null;
@@ -224,6 +229,7 @@ router.post('/verify', verifyLimiter, (req, res) => {
       superKey: isSuperKey,
       meta: authResult.meta,
     };
+    httpStatus = 200;
     touchLastUsed(effectiveRow.id);
   }
 
@@ -243,7 +249,7 @@ router.post('/verify', verifyLimiter, (req, res) => {
   });
   log.debug(`verify ${result} ${reason || ''} ip=${ip} acct=${acct.username} super=${isSuperKey}`, { keyId: effectiveRow && effectiveRow.id });
 
-  res.json(body);
+  res.status(httpStatus).json(body);
 });
 
 router.get('/verify', (_req, res) => {
@@ -324,32 +330,44 @@ const varLimiter = rateLimit({
 const VAR_NAME_RE = /^[A-Za-z0-9_.\-]{2,64}$/;
 
 /**
+ * 把 /v1/verify 的 key 错误 code 映射成 HTTP 状态码。
+ * 用于 /v1/variables/* 在 key 鉴权失败时复用一致的语义。
+ *
+ * 设计原则：对外 API 所有失败统一返 400，错误类型用响应体 code 区分。
+ *   业务侧写 if (r.status === 200) ok; else 用 r.body.code 判断具体失败原因。
+ */
+function keyErrorStatus(_code) {
+  return 400;
+}
+
+/**
  * POST /v1/variables/get
  * body: { name: "DB_URL" }  +  任意能通过 verify 的传 key 方式
  * → 200 { ok:true,  name, value, description }
- * → 200 { ok:false, code: "MISSING_NAME|INVALID_NAME|NOT_FOUND|MISSING_KEY|NOT_FOUND_KEY|DISABLED|EXPIRED", reason }
- *   状态码始终 200，业务方按 ok 字段判断
+ * → 失败统一返 400，错误类型用响应体 code 区分：
+ *     MISSING_NAME / INVALID_NAME / NOT_FOUND / SCOPE_FORBIDDEN
+ *     MISSING_KEY / DISABLED / EXPIRED / ACCOUNT_NOT_FOUND ...
  */
 router.post('/variables/get', varLimiter, (req, res) => {
   const acct = resolveVerifyAccount(req);
-  if (acct.error) return res.json({ ok: false, code: acct.error, reason: acct.msg });
+  if (acct.error) return res.status(400).json({ ok: false, code: acct.error, reason: acct.msg });
   const plain = extractKey(req);
   const kc = checkKey(plain, acct);
   if (!kc.ok) {
-    return res.json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
+    return res.status(keyErrorStatus(kc.code)).json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
   }
   const name = (req.body?.name || '').trim();
-  if (!name) return res.json({ ok: false, code: 'MISSING_NAME', reason: 'name 必填' });
-  if (!VAR_NAME_RE.test(name)) return res.json({ ok: false, code: 'INVALID_NAME', reason: 'name 格式错' });
+  if (!name) return res.status(400).json({ ok: false, code: 'MISSING_NAME', reason: 'name 必填' });
+  if (!VAR_NAME_RE.test(name)) return res.status(400).json({ ok: false, code: 'INVALID_NAME', reason: 'name 格式错' });
   if (!keyAllowsScope(kc.meta, name)) {
     logVarAccess(name, kc.keyId, req, 'scope_forbidden');
-    return res.json({ ok: false, code: 'SCOPE_FORBIDDEN', reason: '该 key 无权访问此变量' });
+    return res.status(400).json({ ok: false, code: 'SCOPE_FORBIDDEN', reason: '该 key 无权访问此变量' });
   }
 
   const row = db.prepare('SELECT name, value, description FROM variables WHERE name = ?').get(name);
   if (!row) {
     logVarAccess(name, kc.keyId, req, 'not_found');
-    return res.json({ ok: false, code: 'NOT_FOUND', reason: '变量不存在' });
+    return res.status(400).json({ ok: false, code: 'NOT_FOUND', reason: '变量不存在' });
   }
 
   logVarAccess(name, kc.keyId, req, 'ok');
@@ -358,24 +376,27 @@ router.post('/variables/get', varLimiter, (req, res) => {
 
 /**
  * POST /v1/variables/multi
+ * 失败统一返 400，错误类型用响应体 code 区分：
+ *   MISSING_NAMES / TOO_MANY / INVALID_NAME / SCOPE_FORBIDDEN
+ *   MISSING_KEY / NOT_FOUND / DISABLED / EXPIRED ...
  */
 router.post('/variables/multi', varLimiter, (req, res) => {
   const acct = resolveVerifyAccount(req);
-  if (acct.error) return res.json({ ok: false, code: acct.error, reason: acct.msg });
+  if (acct.error) return res.status(400).json({ ok: false, code: acct.error, reason: acct.msg });
   const plain = extractKey(req);
   const kc = checkKey(plain, acct);
   if (!kc.ok) {
-    return res.json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
+    return res.status(keyErrorStatus(kc.code)).json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
   }
   const names = Array.isArray(req.body?.names) ? req.body.names.map(x => String(x).trim()).filter(Boolean) : null;
-  if (!names || !names.length) return res.json({ ok: false, code: 'MISSING_NAMES', reason: 'names 必填（数组）' });
-  if (names.length > 100) return res.json({ ok: false, code: 'TOO_MANY', reason: '一次最多 100 个' });
+  if (!names || !names.length) return res.status(400).json({ ok: false, code: 'MISSING_NAMES', reason: 'names 必填（数组）' });
+  if (names.length > 100) return res.status(400).json({ ok: false, code: 'TOO_MANY', reason: '一次最多 100 个' });
   for (const n of names) {
-    if (!VAR_NAME_RE.test(n)) return res.json({ ok: false, code: 'INVALID_NAME', reason: `非法 name: ${n}` });
+    if (!VAR_NAME_RE.test(n)) return res.status(400).json({ ok: false, code: 'INVALID_NAME', reason: `非法 name: ${n}` });
   }
   const allowedNames = keyAllowsAnyScope(kc.meta, names);
   if (!allowedNames.length) {
-    return res.json({ ok: false, code: 'SCOPE_FORBIDDEN', reason: '该 key 无权访问任何请求的变量' });
+    return res.status(400).json({ ok: false, code: 'SCOPE_FORBIDDEN', reason: '该 key 无权访问任何请求的变量' });
   }
   const placeholders = allowedNames.map(() => '?').join(',');
   const rows = db.prepare(`SELECT name, value, description FROM variables WHERE name IN (${placeholders})`).all(...allowedNames);
@@ -397,21 +418,23 @@ const VAR_GROUP_RE = /^[A-Za-z0-9_.\-]{2,64}$/;
  * POST /v1/variables/group
  * body: { group: "DB" }   +  任意能通过 verify 的传 key 方式
  * → 200 { ok:true, group, count, items: [{name, value, description}, ...] }
- * → 200 { ok:false, code, reason }
+ * → 失败统一返 400，错误类型用 code 区分：
+ *     MISSING_GROUP / INVALID_GROUP / GROUP_NOT_FOUND
+ *     MISSING_KEY / NOT_FOUND / DISABLED / EXPIRED ...
  *
  * 一次拿一个分组下的所有 name/value 集合。业务侧用来做"按主题批量加载配置"。
  */
 router.post('/variables/group', varLimiter, (req, res) => {
   const acct = resolveVerifyAccount(req);
-  if (acct.error) return res.json({ ok: false, code: acct.error, reason: acct.msg });
+  if (acct.error) return res.status(400).json({ ok: false, code: acct.error, reason: acct.msg });
   const plain = extractKey(req);
   const kc = checkKey(plain, acct);
   if (!kc.ok) {
-    return res.json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
+    return res.status(keyErrorStatus(kc.code)).json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
   }
   const group = (req.body?.group || '').trim();
-  if (!group) return res.json({ ok: false, code: 'MISSING_GROUP', reason: 'group 必填' });
-  if (!VAR_GROUP_RE.test(group)) return res.json({ ok: false, code: 'INVALID_GROUP', reason: 'group 格式错' });
+  if (!group) return res.status(400).json({ ok: false, code: 'MISSING_GROUP', reason: 'group 必填' });
+  if (!VAR_GROUP_RE.test(group)) return res.status(400).json({ ok: false, code: 'INVALID_GROUP', reason: 'group 格式错' });
 
   const rows = db.prepare(`
     SELECT name, value, description FROM variables
@@ -419,7 +442,7 @@ router.post('/variables/group', varLimiter, (req, res) => {
   `).all(group);
 
   if (!rows.length) {
-    return res.json({ ok: false, code: 'GROUP_NOT_FOUND', reason: `分组 ${group} 不存在或为空` });
+    return res.status(400).json({ ok: false, code: 'GROUP_NOT_FOUND', reason: `分组 ${group} 不存在或为空` });
   }
 
   // scope 过滤：若 key 上声明了 scopes，仅返回其中包含的
@@ -442,14 +465,15 @@ router.post('/variables/group', varLimiter, (req, res) => {
 
 /**
  * POST /v1/variables/list
+ * 失败按业务态分状态码：400 参数错
  */
 router.post('/variables/list', varLimiter, (req, res) => {
   const acct = resolveVerifyAccount(req);
-  if (acct.error) return res.json({ ok: false, code: acct.error, reason: acct.msg });
+  if (acct.error) return res.status(400).json({ ok: false, code: acct.error, reason: acct.msg });
   const plain = extractKey(req);
   const kc = checkKey(plain, acct);
   if (!kc.ok) {
-    return res.json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
+    return res.status(keyErrorStatus(kc.code)).json({ ok: false, code: kc.code, reason: 'key 鉴权失败：' + kc.code });
   }
   const rows = db.prepare('SELECT name, description FROM variables ORDER BY id ASC').all();
   const allowedNames = keyAllowsAnyScope(kc.meta, rows.map(r => r.name));
